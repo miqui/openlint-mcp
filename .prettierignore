@@ -1,0 +1,8 @@
+dist/
+coverage/
+.cache/
+package-lock.json
+LICENSE
+.claude/
+docs/v1-plan.md
+README.md
