@@ -30,15 +30,16 @@
     "node": "^22 || >=24"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "npm run tsc -- -p tsconfig.build.json",
     "clean": "rm -rf dist .cache coverage",
     "lint": "npm run lint.prettier && npm run lint.eslint && npm run lint.tsc",
     "lint.fix": "prettier --write . && eslint --fix .",
     "lint.eslint": "eslint --cache --cache-location .cache/.eslintcache .",
     "lint.prettier": "prettier --check .",
-    "lint.tsc": "tsc -p tsconfig.json --noEmit",
+    "lint.tsc": "npm run tsc -- -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "prepare": "husky"
+    "prepare": "husky",
+    "tsc": "node ./node_modules/typescript7/bin/tsc"
   },
   "release": {
     "branches": [
@@ -72,6 +73,7 @@
     "semantic-release": "^25.0.9",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.72.1",
+    "typescript7": "npm:typescript@^7.0.2",
     "vitest": "^5.1.0"
   }
 }
