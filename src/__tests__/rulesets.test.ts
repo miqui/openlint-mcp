@@ -340,6 +340,20 @@ describe('validate', () => {
     });
   });
 
+  it('still checks rule overrides when the ruleset has warnings', async () => {
+    const filter = '  r: { given: "$..[?(@.x)]", then: { function: truthy } }\n';
+    expect(fallback.validate(`extends: [oas]\nrules:\n  no-such-rule: off\n${filter}`)).toEqual({
+      valid: false,
+      errors: [{ message: 'Cannot extend non-existing rule: "no-such-rule"', path: ['rules', 'no-such-rule'] }],
+      warnings: [expect.objectContaining({ path: ['rules', 'r', 'given'] })],
+    });
+    // An extends entry that can't be loaded here may define the rule, so there's nothing to report.
+    expect(fallback.validate(`extends: [./base.yaml]\nrules:\n  no-such-rule: off\n${filter}`)).toMatchObject({
+      valid: true,
+      errors: [],
+    });
+  });
+
   it('accepts overrides, with a warning for inline use', async () => {
     const result = configured.validate('overrides:\n  - files: ["**/*.json"]\n    rules:\n      org-title: off\n');
     expect(result).toMatchObject({ valid: true, errors: [], warnings: [{ path: ['overrides'] }] });
