@@ -99,6 +99,7 @@ All tools are read-only. None of them write files.
   - **Format names:** `format` resolves against `@openlint/openlint-formats`, like inline rulesets, ignoring case, whitespace, `.`, `_` and `-`. It also accepts `swagger` (OpenAPI 2.0), `openapi<version>` and `asyncapi<version>`, so `OpenAPI 3.1` and `asyncapi3` work.
   - **Format families:** a format includes rules declared for formats whose names extend each other. `oas3.1` includes rules for `oas3` (OpenAPI 3.x) and `oas3_1`; `oas3` includes rules for every `oas3_*`. Core's `Rule.matchesFormat` does the match.
   - Unknown formats and rulesets are tool errors.
+  - `filename` (PR 4 review): rules are listed as `lint_document` would apply them to a document of that name, with core's `Ruleset.fromSource`, so rules that `overrides` add or turn off are included. Severity changes that overrides make for parts of a document (`files: ["openapi.yaml#/paths"]`) aren't reflected, since they apply per path while linting.
 
 ### `explain_rule`
 
@@ -106,7 +107,9 @@ All tools are read-only. None of them write files.
 - **Output:** `description`, `message`, `severity`, `given`, `formats`, `documentationUrl`, and **`extensions`**. PR 4 adds `name`, `enabled`, `recommended`, and `then` (`{ function, field?, functionOptions? }[]`).
 - **Notes (PR 4):**
   - `given` is as written, so it may name the ruleset's aliases (`#OperationObject`).
-  - `functionOptions` is left out when its JSON is over 2,000 characters, such as a whole JSON Schema.
+  - `functionOptions` is left out when its JSON is over 2,000 characters, such as a whole JSON Schema, or when it can't be serialized (a `BigInt`, a cycle).
+  - `then.function` is the name the ruleset registered the function under. For YAML/JSON rulesets configured at startup, the server reads it from the ruleset file. Otherwise it's the function's own name, which the bundler usually derives from the function's file name.
+  - `filename` works as for `list_rules`.
   - An unknown rule is a tool error that suggests similar names, closest first.
 - **Note on `extensions`:** core already supports a free-form `extensions` object on rule definitions (core `Rule.extensions`, added upstream in #2345). Rulesets can put agent guidance there, such as `extensions: { prompt: "…" }`, and this tool returns it as is. That covers kinlane's point 6 without a spec change. *PR 4:* the README documents `extensions.prompt` as the convention for agent guidance.
 

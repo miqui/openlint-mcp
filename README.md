@@ -83,6 +83,7 @@ It returns:
 - **`list_rules`** lists a ruleset's rules, sorted by name: severity, whether it's enabled and recommended, its formats and description.
   - `format` keeps the rules for one kind of document. It accepts names like `oas3.1`, `OpenAPI 3.1`, `swagger` (OpenAPI 2.0), `asyncapi3` or `arazzo1.0`. A version includes rules for its family: `oas3.1` includes rules for OpenAPI 3.x, and `oas3` includes rules for every OpenAPI 3 version.
   - `enabledOnly` (default `true`) lists only the rules `lint_document` runs.
+  - `filename` (as for `lint_document`) includes what the ruleset's `overrides` change for a document of that name, such as rules added for `*.json` files.
 - **`explain_rule`** explains one rule: its description, message, `given` paths, `then` (function, field and small function options), severity, formats, documentation link and `extensions`.
 
 **Guidance for agents in your ruleset:** core accepts a free-form `extensions` object on each rule, and `explain_rule` returns it as written. The convention for agent guidance is `extensions.prompt`:
