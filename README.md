@@ -51,6 +51,7 @@ Rulesets that an AI tool passes inline in a tool call are untrusted, so they are
 
 - no custom functions
 - no `overrides`
+- JSONPath (`given`, `then.field`, aliases) only as plain paths, without filter or script expressions (nothing with `(`)
 - `extends` only names a configured ruleset, `oas`, `asyncapi`, `arazzo`, or one of the aliases `spectral:oas`, `spectral:asyncapi`, `spectral:arazzo`, `openlint:openapi`, `openlint:asyncapi` and `openlint:arazzo`
 - `formats` only names formats exported by `@openlint/openlint-formats`
 

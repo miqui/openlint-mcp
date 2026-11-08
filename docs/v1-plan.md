@@ -148,6 +148,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 - **No custom JS from callers.**
   - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.
   - Inline rulesets can't use `overrides` at all (PR 3), since their `files` patterns have no ruleset file to be relative to.
+- **Inline JSONPath stays plain (PR 3).** `lint_document` evaluates an inline ruleset's JSONPath against documents. As defense in depth, inline `given`, `then.field` and alias paths can't contain filter or script expressions (anything with `(`). Configured rulesets can use them, and `validate_ruleset` warns instead of erroring. `npm audit --omit=dev` reports no known vulnerabilities in the dependencies (checked in PR 3).
   - Every inline `then.function` must name a built-in function from `@openlint/openlint-functions`.
   - Custom functions are only allowed in rulesets configured at startup.
 - **Inline `formats` names must be exports of `@openlint/openlint-formats`.**
