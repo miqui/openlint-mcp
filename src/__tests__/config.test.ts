@@ -75,6 +75,14 @@ describe('parseConfig', () => {
     expect(() => parseConfig(['--allow-external-refs=yes'], {}, cwd)).toThrow(ConfigError);
   });
 
+  it('reads --version and --help', () => {
+    expect(parseConfig(['--version'], {}, cwd).show).toBe('version');
+    expect(parseConfig(['-v'], {}, cwd).show).toBe('version');
+    expect(parseConfig(['--help', '--version'], {}, cwd).show).toBe('help');
+    expect(parseConfig(['-h'], {}, cwd).show).toBe('help');
+    expect(parseConfig([], {}, cwd)).not.toHaveProperty('show');
+  });
+
   it('rejects unknown options', () => {
     expect(() => parseConfig(['--rulset', 'a.yaml'], {}, cwd)).toThrow(ConfigError);
     expect(() => parseConfig(['a.yaml'], {}, cwd)).toThrow(ConfigError);
