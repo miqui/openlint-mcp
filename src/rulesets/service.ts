@@ -6,7 +6,7 @@ import { Ruleset, assertValidRuleset, getDiagnosticSeverity } from '@openlint/op
 import { parseYaml } from '@openlint/openlint-parsers';
 import { bundleAndLoadRuleset } from '@openlint/openlint-ruleset-bundler/with-loader';
 import { arazzo, asyncapi, oas } from '@openlint/openlint-rulesets';
-import { fetch } from '@openlint/openlint-runtime';
+import runtime from '@openlint/openlint-runtime';
 
 import { PACKAGE_RULESET_NAMES, type PackageRulesetName, type RulesetSpec } from '../config.js';
 import { formatIssue, toIssues, type Issue } from './issues.js';
@@ -22,6 +22,10 @@ import {
   unknownFunctionIssues,
   type Json,
 } from './policy.js';
+
+// A default import: Node 22 can't detect `fetch` as a named export of this CommonJS package (its
+// export getter wraps a call), so `import { fetch }` fails there at startup.
+const { fetch } = runtime;
 
 const PACKAGE_RULESETS: Readonly<Record<PackageRulesetName, unknown>> = { oas, asyncapi, arazzo };
 const PACKAGE_SOURCE = '@openlint/openlint-rulesets';
