@@ -35,6 +35,11 @@ export default tseslint.config(
   },
 
   {
+    files: ['scripts/**/*.js'],
+    rules: { 'no-console': 'off' },
+  },
+
+  {
     files: ['src/**/__tests__/**/*.ts'],
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',

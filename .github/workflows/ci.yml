@@ -24,18 +24,7 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Smoke test stdio server
-        run: |
-          response=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"ci","version":"0"}}}' \
-            | timeout 10 node dist/index.js | head -n 1)
-          RESPONSE="$response" node -e '
-            const { version } = require("./package.json");
-            const info = JSON.parse(process.env.RESPONSE).result.serverInfo;
-            if (info.name !== "openlint-mcp" || info.version !== version) {
-              console.error(`unexpected serverInfo ${JSON.stringify(info)}, expected version ${version}`);
-              process.exit(1);
-            }
-            console.log(`serverInfo ok: ${info.name}@${info.version}`);
-          '
+        run: timeout 60 npm run smoke
 
   commitlint:
     if: github.event_name == 'pull_request'
