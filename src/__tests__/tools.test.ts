@@ -148,9 +148,18 @@ describe('list_rules', () => {
     expect(rules.map(rule => rule.name)).not.toContain('oas3-api-servers');
   });
 
-  it('returns an error for unknown formats and rulesets', async () => {
+  it('includes rules from overrides that match filename', async () => {
+    const file = fileURLToPath(new URL('./__fixtures__/org-overrides/.openlint.yaml', import.meta.url));
+    client = await connect(await RulesetService.fromConfig([{ name: 'default', path: file, isDefault: true }]));
+    const { structuredContent } = await call('list_rules', { filename: 'openapi.json' });
+    expect((structuredContent as { rules: { name: string }[] }).rules.map(rule => rule.name)).toContain(
+      'json-only-title',
+    );
+  });
+
+  it('returns an error for unknown formats, rulesets and bad file names', async () => {
     client = await connect();
-    for (const args of [{ format: 'bogus' }, { ruleset: 'nope' }]) {
+    for (const args of [{ format: 'bogus' }, { ruleset: 'nope' }, { filename: '../openapi.json' }]) {
       const result = await client.callTool({ name: 'list_rules', arguments: args });
       expect(result.isError).toBe(true);
     }

@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { DEFAULT_FILENAME, SEVERITY_NAMES, lintDocument } from '../lint.js';
 import { formatIssue } from '../rulesets/issues.js';
 import type { RulesetService } from '../rulesets/service.js';
-import { result } from './schemas.js';
+import { filenameSchema, result } from './schemas.js';
 
 const position = z.object({ line: z.number().int(), character: z.number().int() });
 const range = z.object({ start: position, end: position }).describe('0-based lines and characters');
@@ -38,10 +38,7 @@ export function registerLintDocument(server: McpServer, rulesets: RulesetService
           : 'External $refs to files and URLs are not followed; they are reported as invalid-ref.'),
       inputSchema: {
         content: z.string().describe('The document, as YAML or JSON text'),
-        filename: z
-          .string()
-          .regex(/^[^/\\#?%]+$/, 'A file name, without directories or the characters # ? %')
-          .refine(name => name !== '.' && name !== '..', 'A file name, without directories')
+        filename: filenameSchema
           .optional()
           .describe(
             `A name for the document, such as "openapi.json". It is never read from disk. A .json name selects ` +

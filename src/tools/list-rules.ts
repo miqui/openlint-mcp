@@ -1,11 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { rulesetForDocument } from '../lint.js';
 import { listRules } from '../rules.js';
 import { formatIssue } from '../rulesets/issues.js';
 import type { RulesetService } from '../rulesets/service.js';
 import { ruleSummary } from './rule-schemas.js';
-import { result } from './schemas.js';
+import { lookupFilename, result, rulesetArgument } from './schemas.js';
 
 export function registerListRules(server: McpServer, rulesets: RulesetService): void {
   server.registerTool(
@@ -15,14 +16,11 @@ export function registerListRules(server: McpServer, rulesets: RulesetService): 
       description:
         "Lists a ruleset's rules, sorted by name. `format` keeps the rules that apply to documents of that format: " +
         'oas3.1 includes rules for OpenAPI 3.1 and 3.x; oas3 includes rules for every OpenAPI 3 version. ' +
+        'Rules that overrides in the ruleset add or turn off for a document are included when `filename` matches them. ' +
         'Use explain_rule for one rule in detail.',
       inputSchema: {
-        ruleset: z
-          .string()
-          .optional()
-          .describe(
-            'A ruleset name from list_rulesets (or oas, asyncapi, arazzo), or an inline YAML/JSON ruleset. Default: the default ruleset.',
-          ),
+        ruleset: rulesetArgument,
+        filename: lookupFilename,
         format: z
           .string()
           .optional()
@@ -32,7 +30,7 @@ export function registerListRules(server: McpServer, rulesets: RulesetService): 
       outputSchema: { rules: z.array(ruleSummary) },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ ruleset, format, enabledOnly }) => {
+    ({ ruleset, filename, format, enabledOnly }) => {
       const resolved = rulesets.resolve(ruleset);
       if (!resolved.ok) {
         return {
@@ -42,7 +40,7 @@ export function registerListRules(server: McpServer, rulesets: RulesetService): 
           ],
         };
       }
-      const listed = listRules(resolved.ruleset, { format, enabledOnly });
+      const listed = listRules(rulesetForDocument(resolved.ruleset, filename), { format, enabledOnly });
       return listed.ok
         ? result({ rules: listed.rules })
         : { isError: true, content: [{ type: 'text', text: listed.message }] };
