@@ -44,7 +44,7 @@ All are already on npm:
 Core is CommonJS. This package is ESM and imports core by name. It needs Node `^22.22.1 || >=24`. That's the CLI's `^22 || >=24`, with the 22.x minimum raised to 22.22.1 because the dev toolchain needs it (lint-staged).
 
 **Checked against the published npm packages** (not the monorepo build), 2026-11-07:
-- Named ESM imports work: `{ OpenLint, Document }` from core, `{ Yaml }` from parsers, `{ oas }` from rulesets, and `{ bundleAndLoadRuleset }` from the bundler's `/with-loader` entry.
+- Named ESM imports work: `{ OpenLint, Document }` from core, `{ Yaml }` from parsers, `{ oas }` from rulesets, and `{ bundleAndLoadRuleset }` from the bundler's `/with-loader` entry. Exception: `fetch` from `@openlint/openlint-runtime` needs the default import on Node 22 (see Upstream follow-ups).
 - Linting an OAS 3.0 document with `oas` works (9 results). The CLI's JS-ruleset crash doesn't happen here.
 - After `run()`, `document.formats` holds the matched formats (for example `OpenAPI 3.x`, `OpenAPI 3.0.x`), so `lint_document` can report them.
 - `bundleAndLoadRuleset(file, { fs, fetch })` loads a YAML ruleset file with `extends: ["spectral:oas"]` and gives the same results as the CLI.
@@ -219,6 +219,7 @@ Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
 - **Security report, to send privately** to the OpenLint maintainers (for example through a GitHub security advisory), about how the ruleset migrator handles `formats` names. Details are withheld here until a fix ships. Then add them here, and this repo may be able to drop its own format check.
 - **Migrator format table drift:** `asyncapi3` and `arazzo1` are listed but fail to load, and `oas3.2` isn't listed but works. Resolving format names against the exports of `@openlint/openlint-formats` would fix it.
+- **`fetch` isn't importable by name on Node 22:** `import { fetch } from '@openlint/openlint-runtime'` fails there at startup with `Named export 'fetch' not found`. It works on Node 24.16. The package's CommonJS build defines `fetch` with a getter that wraps a call (`__importDefault(...)`), which Node 22's export detection can't see. This repo uses the default import instead. A small upstream fix would be to re-export it in a form Node detects.
 - **Optional:** add an `openlint:oas` alias in `packages/ruleset-migrator/src/transformers/extends.ts` for symmetry with `spectral:oas`. The OpenAPI alias is `openlint:openapi`, so nothing is missing, but `openlint:oas` is an easy guess. Today it is resolved as a file path and fails.
 - **JS rulesets crashing in the CLI:** `.mjs` rulesets that import `oas` crash on OAS 3.0 documents with `oasDocumentSchema … a is not a function`. *PR 2:* this doesn't reproduce through the published bundler. `bundleAndLoadRuleset` loads such a ruleset from outside the package directory and lints OAS 3.0 correctly, so the bug is likely in the CLI. Reproduce it with the CLI before filing.
 - **Possible core limitation:** core can't extend a ruleset that uses aliases, such as `oas`, inside `overrides`. It fails with `Alias "ArrayProperties" does not exist`. Check whether that's intended (Spectral may behave the same) before filing.
