@@ -49,6 +49,7 @@ The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd
 Rulesets that an AI tool passes inline in a tool call are untrusted, so they are restricted:
 
 - no custom functions
+- no `overrides`
 - `extends` only names a configured ruleset, `oas`, `asyncapi`, `arazzo`, or one of the aliases `spectral:oas`, `spectral:asyncapi`, `spectral:arazzo`, `openlint:openapi`, `openlint:asyncapi` and `openlint:arazzo`
 - `formats` only names formats exported by `@openlint/openlint-formats`
 
