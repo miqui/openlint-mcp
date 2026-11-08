@@ -122,9 +122,17 @@ describe('lint_document', () => {
     }
   });
 
-  it('rejects file names with directories', async () => {
+  it('rejects file names with directories or URI characters', async () => {
     client = await connect();
-    for (const filename of ['../openapi.yaml', 'specs/openapi.yaml', '..', 'C:\\openapi.yaml']) {
+    for (const filename of [
+      '../openapi.yaml',
+      'specs/openapi.yaml',
+      '..',
+      'C:\\openapi.yaml',
+      'api#draft.yaml',
+      'a?b.yaml',
+      '100%.yaml',
+    ]) {
       const result = await client.callTool({ name: 'lint_document', arguments: { content: oas30, filename } });
       expect(result.isError).toBe(true);
     }

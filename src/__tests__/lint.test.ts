@@ -109,14 +109,18 @@ describe('output shaping', () => {
 });
 
 describe('relativeTo', () => {
-  it('rewrites paths under the directory, but not URLs or other paths', () => {
+  it('rewrites paths under and next to the directory, but not URLs or OpenAPI paths', () => {
     const relative = relativeTo(path.join(path.sep, 'srv', 'api'));
     const file = path.join(path.sep, 'srv', 'api', 'pets.yaml');
     expect(relative(`in ref ${file}`)).toBe('in ref pets.yaml');
     expect(relative(`'${file}'`)).toBe("'pets.yaml'");
     expect(relative(file)).toBe('pets.yaml');
     expect(relative('http://host/srv/api/pets.yaml')).toBe('http://host/srv/api/pets.yaml');
-    expect(relative(path.join(path.sep, 'srv', 'apis', 'x.yaml'))).toBe(path.join(path.sep, 'srv', 'apis', 'x.yaml'));
+    expect(relative(path.join(path.sep, 'srv', 'apis', 'x.yaml'))).toBe(path.join('..', 'apis', 'x.yaml'));
+    expect(relative(`open '${path.join(path.sep, 'srv', 'shared', 'types.yaml')}'`)).toBe(
+      `open '${path.join('..', 'shared', 'types.yaml')}'`,
+    );
+    expect(relative('"/pets" must not end with a slash')).toBe('"/pets" must not end with a slash');
   });
 
   it('leaves everything alone at a filesystem root', () => {
@@ -225,6 +229,56 @@ describe('external $refs', () => {
     const result = await lintDocument({ content: documentWithRefs(url), ruleset: defaultRuleset, groupBy: 'none' });
     const messages = (result.diagnostics as FlatDiagnostic[]).filter(d => d.code === 'invalid-ref').map(d => d.message);
     expect(messages.some(message => message.includes(url))).toBe(true);
+  });
+
+  describe('that stall', () => {
+    let stalled: http.Server;
+    let stalledBase: string;
+    let closed = 0;
+
+    beforeAll(async () => {
+      // Accepts requests and never answers.
+      stalled = http.createServer((request, _response) => {
+        request.socket.on('close', () => closed++);
+      });
+      await new Promise<void>(resolve => stalled.listen(0, '127.0.0.1', resolve));
+      stalledBase = `http://127.0.0.1:${(stalled.address() as AddressInfo).port}`;
+    });
+
+    afterAll(() => {
+      stalled.closeAllConnections();
+      return new Promise<void>(resolve => stalled.close(() => resolve()));
+    });
+
+    it('time out', async () => {
+      const started = Date.now();
+      const result = await lintDocument({
+        content: documentWithRefs(`${stalledBase}/pet.yaml`),
+        ruleset: defaultRuleset,
+        groupBy: 'none',
+        allowExternalRefs: true,
+        externalRefTimeoutMs: 200,
+      });
+      expect(Date.now() - started).toBeLessThan(5000);
+      const invalidRefs = (result.diagnostics as FlatDiagnostic[]).filter(d => d.code === 'invalid-ref');
+      expect(invalidRefs.map(d => d.path.at(-2))).toContain('schema');
+    });
+
+    it('are cancelled with the signal', async () => {
+      closed = 0;
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+      const started = Date.now();
+      await lintDocument({
+        content: documentWithRefs(`${stalledBase}/pet.yaml`),
+        ruleset: defaultRuleset,
+        allowExternalRefs: true,
+        externalRefTimeoutMs: 60_000,
+        signal: controller.signal,
+      });
+      expect(Date.now() - started).toBeLessThan(5000);
+      await vi.waitFor(() => expect(closed).toBeGreaterThan(0));
+    });
   });
 
   it.each([false, true])("aren't fetched from rule options (allowExternalRefs: %s)", async allowExternalRefs => {

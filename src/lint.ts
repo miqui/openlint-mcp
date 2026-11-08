@@ -8,7 +8,7 @@ import {
   type Ruleset,
 } from '@openlint/openlint-core';
 import { Json, Yaml } from '@openlint/openlint-parsers';
-import { Resolver, createHttpAndFileResolver } from '@openlint/openlint-ref-resolver';
+import { Resolver, createHttpAndFileResolver, type IHttpAndFileResolverOptions } from '@openlint/openlint-ref-resolver';
 
 export const SEVERITY_NAMES = ['error', 'warn', 'info', 'hint'] as const;
 export type SeverityName = (typeof SEVERITY_NAMES)[number];
@@ -20,6 +20,9 @@ const NAME_BY_SEVERITY = new Map<number, SeverityName>(
 
 /** The document name used when the caller gives none. */
 export const DEFAULT_FILENAME = 'document.yaml';
+
+/** How long each external `$ref` request may take, with `allowExternalRefs`. */
+export const EXTERNAL_REF_TIMEOUT_MS = 10_000;
 
 export interface Position {
   readonly line: number;
@@ -64,6 +67,9 @@ export interface LintOptions {
   readonly limit?: number;
   readonly groupBy?: 'none' | 'code';
   readonly allowExternalRefs?: boolean;
+  /** Cancels pending external `$ref` requests, e.g. when the MCP call is cancelled. */
+  readonly signal?: AbortSignal;
+  readonly externalRefTimeoutMs?: number;
 }
 
 export interface LintResult {
@@ -94,6 +100,8 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
     limit = 50,
     groupBy = 'code',
     allowExternalRefs = false,
+    signal,
+    externalRefTimeoutMs = EXTERNAL_REF_TIMEOUT_MS,
   } = options;
 
   const baseDir = ruleset.source === null ? process.cwd() : path.dirname(ruleset.source);
@@ -102,7 +110,7 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
     ? new Document(content, Json, source)
     : new Document(content, Yaml, source);
 
-  const openlint = new OpenLint({ resolver: allowExternalRefs ? createHttpAndFileResolver() : new Resolver() });
+  const openlint = new OpenLint({ resolver: documentResolver(allowExternalRefs, externalRefTimeoutMs, signal) });
   openlint.setRuleset(ruleset);
   const results = await openlint.run(document);
 
@@ -129,15 +137,29 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
 }
 
 /**
- * Rewrites absolute paths under `baseDir` relative to it, so messages don't carry server paths. Only
- * paths that start a word are rewritten, so URLs with the same path segments stay intact; at a
- * filesystem root nothing is rewritten.
+ * Without external refs, a resolver with no file or http handlers. With them, core's default file
+ * and http resolver, with a deadline and cancellation for each request.
+ */
+function documentResolver(allowExternalRefs: boolean, timeout: number, signal: AbortSignal | undefined): Resolver {
+  if (!allowExternalRefs) return new Resolver();
+  // The http reader passes these to node-fetch, although the option type only declares `agent`.
+  const requestOptions = { timeout, ...(signal === undefined ? {} : { signal }) };
+  return createHttpAndFileResolver(requestOptions as IHttpAndFileResolverOptions);
+}
+
+/**
+ * Rewrites absolute paths relative to `baseDir`, so messages don't carry server paths. Only paths
+ * that start a word and share `baseDir`'s first directory are rewritten (so `../shared/x.yaml` works,
+ * while URLs and OpenAPI paths such as `/pets` stay as they are). At a filesystem root, nothing is.
  */
 export function relativeTo(baseDir: string): (text: string) => string {
+  const { root } = path.parse(baseDir);
   if (path.dirname(baseDir) === baseDir) return text => text;
-  const prefix = `${baseDir}${path.sep}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const pattern = new RegExp(`(^|[\\s'"(])${prefix}`, 'g');
-  return text => text.replace(pattern, '$1');
+  const [firstSegment] = baseDir.slice(root.length).split(path.sep);
+  const prefix = `${root}${firstSegment}${path.sep}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^|[\\s'"(])(${prefix}[^\\s'"()]*)`, 'g');
+  return text =>
+    text.replace(pattern, (_match, lead: string, file: string) => `${lead}${path.relative(baseDir, file)}`);
 }
 
 function toFlat(

@@ -40,8 +40,8 @@ export function registerLintDocument(server: McpServer, rulesets: RulesetService
         content: z.string().describe('The document, as YAML or JSON text'),
         filename: z
           .string()
-          .regex(/^[^/\\]+$/, 'A file name without directories')
-          .refine(name => name !== '.' && name !== '..', 'A file name without directories')
+          .regex(/^[^/\\#?%]+$/, 'A file name, without directories or the characters # ? %')
+          .refine(name => name !== '.' && name !== '..', 'A file name, without directories')
           .optional()
           .describe(
             `A name for the document, such as "openapi.json". It is never read from disk. A .json name selects ` +
@@ -73,7 +73,7 @@ export function registerLintDocument(server: McpServer, rulesets: RulesetService
       },
       annotations: { readOnlyHint: true, openWorldHint: allowExternalRefs },
     },
-    async ({ content, filename, ruleset, severity: threshold, limit, groupBy }) => {
+    async ({ content, filename, ruleset, severity: threshold, limit, groupBy }, { signal }) => {
       const resolved = rulesets.resolve(ruleset);
       if (!resolved.ok) {
         return {
@@ -93,6 +93,7 @@ export function registerLintDocument(server: McpServer, rulesets: RulesetService
             limit,
             groupBy,
             allowExternalRefs,
+            signal,
           }),
         );
       } catch (error) {
