@@ -135,10 +135,39 @@ describe('inline rulesets', () => {
   );
 
   it('extends a configured ruleset, keeping its custom functions', async () => {
+    // Also the positive control for the readFile spies below: loading the configured ruleset's file
+    // through an inline extends is a read they must see.
+    const readFile = vi.spyOn(fs.promises, 'readFile');
     for (const extendsValue of ['default', '[default]', '[[default, recommended]]']) {
       const ruleset = rulesetOf(await configured.loadInline(`extends: ${extendsValue}\n${needDescription}`));
       expect((await lintCodes(ruleset)).sort()).toEqual(['need-description', 'org-title']);
     }
+    expect(readFile.mock.calls.map(([file]) => (typeof file === 'string' ? path.resolve(file) : file))).toContain(ORG);
+  });
+
+  it('extends a configured JS ruleset, keeping its imports and custom functions', async () => {
+    const js = await RulesetService.fromConfig([
+      { name: 'js', path: path.join(FIXTURES, 'org', 'ruleset.mjs'), isDefault: true },
+    ]);
+    const codes = await lintCodes(rulesetOf(await js.loadInline('extends: [js]\nrules:\n  info-contact: off\n')));
+    expect(codes).toContain('org-title');
+    expect(codes).toContain('oas3-schema');
+    expect(codes).not.toContain('info-contact');
+  });
+
+  it.each([
+    ['oas3', 'OpenAPI 3.x'],
+    ['oas3.1', 'OpenAPI 3.1.x'],
+    ['OAS3_1', 'OpenAPI 3.1.x'],
+    ['oas3.2', 'OpenAPI 3.2.x'],
+    ['asyncapi2', 'AsyncAPI 2.x'],
+    ['aas3', 'AsyncAPI 3.x'],
+    ['arazzo1.0', 'Arazzo 1.0.x'],
+    ['json-schema-draft7', 'JSON Schema Draft 7'],
+  ])('resolves format %s against @openlint/openlint-formats', async (name, displayName) => {
+    const content = `formats: [${JSON.stringify(name)}]\n${needDescription}`;
+    const ruleset = rulesetOf(await fallback.loadInline(content));
+    expect([...ruleset.formats].map(format => format.displayName)).toEqual([displayName]);
   });
 
   it('can turn off a rule of the ruleset it extends', async () => {
@@ -197,6 +226,39 @@ describe('inline rulesets', () => {
       );
     });
 
+    // Only names exported by @openlint/openlint-formats pass.
+    it.each(['bogus', 'asyncapi3', 'arazzo1', 'oas3.9', 'detectDialect', '../formats', 'oas3; void 0', ''])(
+      'format %j, wherever formats appear',
+      async name => {
+        const quoted = JSON.stringify(name);
+        const rule = 'r: { given: $, then: { function: truthy } }';
+        await rejects(`formats: [${quoted}]\nrules:\n  ${rule}\n`, ['formats', 0], /Unknown format/);
+        await rejects(
+          `rules:\n  r: { given: $, formats: [oas3, ${quoted}], then: { function: truthy } }\n`,
+          ['rules', 'r', 'formats', 1],
+          /Unknown format/,
+        );
+        await rejects(
+          `overrides:\n  - files: ["**"]\n    formats: [${quoted}]\n    rules:\n      ${rule}\n`,
+          ['overrides', 0, 'formats', 0],
+          /Unknown format/,
+        );
+        await rejects(
+          `aliases:\n  A:\n    targets:\n      - formats: [${quoted}]\n        given: ["$.info"]\nrules:\n  ${rule}\n`,
+          ['aliases', 'A', 'targets', 0, 'formats', 0],
+          /Unknown format/,
+        );
+      },
+    );
+
+    it('non-string formats', async () => {
+      await rejects(
+        'formats: [42]\nrules:\n  r: { given: $, then: { function: truthy } }\n',
+        ['formats', 0],
+        /Unknown format 42/,
+      );
+    });
+
     it.each(['spectral:bogus', 'openlint:oas', 'spectral:'])('unknown alias %s', async name => {
       await rejects(`extends: [${JSON.stringify(name)}]\n`, ['extends', 0], /Unknown ruleset alias/);
     });
@@ -239,6 +301,13 @@ describe('validate', () => {
     expect(result.valid).toBe(true);
     expect(result.errors).toEqual([]);
     expect(result.warnings.map(warning => warning.path)).toEqual([['functions'], ['extends', 0]]);
+  });
+
+  it('reports formats that @openlint/openlint-formats does not export', async () => {
+    const result = await fallback.validate(
+      'formats: [oas3.1, asyncapi3]\nrules:\n  r: { given: $, then: { function: truthy } }\n',
+    );
+    expect(result).toMatchObject({ valid: false, errors: [{ path: ['formats', 1] }] });
   });
 
   it('reports functions that are neither built in nor declared', async () => {

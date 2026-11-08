@@ -1,9 +1,13 @@
 /**
- * Checks on ruleset definitions in their YAML/JSON form (function names and `extends` entries are
- * strings). Inline rulesets come from tool callers, so they are untrusted: they may not run custom
- * code or make the bundler read files, fetch URLs or resolve packages.
+ * Checks on ruleset definitions in their YAML/JSON form (function names, format names and `extends`
+ * entries are strings). Inline rulesets come from tool callers, so they are untrusted: they may not
+ * run custom code or make the bundler read files, fetch URLs or resolve packages.
+ *
+ * Every such name in an inline ruleset must come from a fixed set: built-in functions, format
+ * exports, ruleset aliases and configured rulesets. Anything else is rejected before bundling.
  */
 import * as builtinFunctions from '@openlint/openlint-functions';
+import * as formatExports from '@openlint/openlint-formats';
 
 import { PACKAGE_RULESET_NAMES, type PackageRulesetName } from '../config.js';
 import type { Issue, IssuePath } from './issues.js';
@@ -20,6 +24,41 @@ export const BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set(
     .filter(([name, value]) => name !== 'default' && typeof value === 'function')
     .map(([name]) => name),
 );
+
+/**
+ * Format functions exported by `@openlint/openlint-formats`, by export name. Formats have a
+ * `displayName`; the package's helpers (such as `detectDialect`) don't.
+ */
+const FORMATS: ReadonlyMap<string, unknown> = new Map(
+  Object.entries(formatExports).filter(
+    ([name, value]) =>
+      name !== 'default' &&
+      typeof value === 'function' &&
+      typeof (value as { displayName?: unknown }).displayName === 'string',
+  ),
+);
+
+const formatKey = (name: string): string => name.toLowerCase().replace(/[._-]/g, '');
+
+const FORMATS_BY_KEY = new Map<string, string[]>();
+for (const name of FORMATS.keys()) {
+  FORMATS_BY_KEY.set(formatKey(name), [...(FORMATS_BY_KEY.get(formatKey(name)) ?? []), name]);
+}
+
+/** Format export names, for messages. */
+export const FORMAT_NAMES: readonly string[] = [...FORMATS.keys()];
+
+/**
+ * Maps a format name to an export of `@openlint/openlint-formats`, or `undefined` when there is none.
+ * Case, `.`, `_` and `-` are ignored, so `oas3.1`, `oas3_1` and `OAS3.1` all name `oas3_1`, and
+ * `json-schema-draft7` names `jsonSchemaDraft7`. Names that match different formats are refused.
+ */
+export function resolveFormat(name: string): string | undefined {
+  if (FORMATS.has(name)) return name;
+  const candidates = FORMATS_BY_KEY.get(formatKey(name)) ?? [];
+  const formats = new Set(candidates.map(candidate => FORMATS.get(candidate)));
+  return formats.size === 1 ? candidates[0] : undefined;
+}
 
 /**
  * The `extends` aliases the ruleset migrator maps to `@openlint/openlint-rulesets`. This must match
@@ -111,6 +150,46 @@ export function functionRefs(definition: Json): Ref[] {
   return refs;
 }
 
+/**
+ * Every `formats` entry: on the ruleset and its overrides, on their rules, and on alias targets
+ * (including alias targets inside overrides).
+ */
+export function formatRefs(definition: Json): Ref[] {
+  const refs: Ref[] = [];
+  const add = (formats: unknown, path: IssuePath): void => {
+    if (Array.isArray(formats)) formats.forEach((name: unknown, index) => refs.push({ name, path: [...path, index] }));
+  };
+  for (const scope of scopes(definition)) {
+    add(scope.definition['formats'], [...scope.path, 'formats']);
+    const { rules, aliases } = scope.definition;
+    if (isObject(rules)) {
+      for (const [ruleName, rule] of Object.entries(rules)) {
+        if (isObject(rule)) add(rule['formats'], [...scope.path, 'rules', ruleName, 'formats']);
+      }
+    }
+    if (isObject(aliases)) {
+      for (const [aliasName, alias] of Object.entries(aliases)) {
+        if (!isObject(alias) || !Array.isArray(alias['targets'])) continue;
+        alias['targets'].forEach((target: unknown, index) => {
+          if (isObject(target))
+            add(target['formats'], [...scope.path, 'aliases', aliasName, 'targets', index, 'formats']);
+        });
+      }
+    }
+  }
+  return refs;
+}
+
+/** Format names that aren't exported by `@openlint/openlint-formats`. */
+export function unknownFormatIssues(definition: Json): Issue[] {
+  return formatRefs(definition)
+    .filter(ref => typeof ref.name !== 'string' || resolveFormat(ref.name) === undefined)
+    .map(ref => ({
+      message: `Unknown format ${JSON.stringify(ref.name)}. Use a format from @openlint/openlint-formats: ${FORMAT_NAMES.join(', ')} (case, ".", "_" and "-" don't matter, so "oas3.1" works).`,
+      path: ref.path,
+    }));
+}
+
 export function declaredFunctions(definition: Json): Set<string> {
   const { functions } = definition;
   return new Set(Array.isArray(functions) ? functions.filter((name): name is string => typeof name === 'string') : []);
@@ -178,27 +257,26 @@ export function extendsIssues(
   return { unknownAliases, notAllowedInline };
 }
 
-/** A copy of `definition` with each allowed `extends` name replaced by what `resolve` returns. */
-export function rewriteExtends(definition: Json, resolve: ExtendsResolver): Json {
-  const rename = (name: unknown): unknown => (typeof name === 'string' ? (resolve(name) ?? name) : name);
-  const rewriteScope = (scope: Json): Json => {
-    const value = scope['extends'];
-    if (value === undefined) return scope;
-    const rewritten = Array.isArray(value)
-      ? value.map((entry: unknown) => {
-          if (!Array.isArray(entry)) return rename(entry);
-          const [name, ...rest] = entry as unknown[];
-          return [rename(name), ...rest];
-        })
-      : rename(value);
-    return { ...scope, extends: rewritten };
-  };
+/**
+ * A copy of a definition that passed the inline policy, ready for the bundler: each `extends` name is
+ * replaced by what `resolveExtends` returns, and each format name by its export name.
+ */
+export function prepareForBundling(definition: Json, resolveExtends: ExtendsResolver): Json {
   // A JSON round trip: the definition came from YAML/JSON, and `structuredClone` rejects the parser's objects.
-  const copy = rewriteScope(JSON.parse(JSON.stringify(definition)) as Json);
-  if (Array.isArray(copy['overrides'])) {
-    copy['overrides'] = copy['overrides'].map((override: unknown) =>
-      isObject(override) ? rewriteScope(override) : override,
-    );
+  const copy = JSON.parse(JSON.stringify(definition)) as Json;
+  for (const ref of extendsRefs(copy)) {
+    const target = typeof ref.name === 'string' ? resolveExtends(ref.name) : undefined;
+    if (target !== undefined) setAt(copy, ref.path, target);
+  }
+  for (const ref of formatRefs(copy)) {
+    const target = typeof ref.name === 'string' ? resolveFormat(ref.name) : undefined;
+    if (target !== undefined) setAt(copy, ref.path, target);
   }
   return copy;
+}
+
+function setAt(root: Json, path: IssuePath, value: unknown): void {
+  let node: unknown = root;
+  for (const key of path.slice(0, -1)) node = (node as Record<string | number, unknown>)[key];
+  (node as Record<string | number, unknown>)[path[path.length - 1]!] = value;
 }

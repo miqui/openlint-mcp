@@ -17,7 +17,8 @@ import {
   extendsIssues,
   isObject,
   isPackageRulesetName,
-  rewriteExtends,
+  prepareForBundling,
+  unknownFormatIssues,
   unknownFunctionIssues,
   type Json,
 } from './policy.js';
@@ -152,11 +153,12 @@ export class RulesetService {
       ...unknownAliases,
       ...notAllowedInline,
       ...unknownFunctionIssues(definition),
+      ...unknownFormatIssues(definition),
       ...staticIssues(definition),
     ];
     if (issues.length > 0) return { ok: false, issues };
 
-    return bundleInline(rewriteExtends(definition, this.resolveExtends));
+    return bundleInline(prepareForBundling(definition, this.resolveExtends));
   }
 
   /**
@@ -169,13 +171,18 @@ export class RulesetService {
     const definition = parsed.definition;
 
     const { unknownAliases, notAllowedInline } = extendsIssues(definition, this.resolveExtends, this.allowedNames());
-    const errors = [...staticIssues(definition), ...unknownAliases, ...unknownFunctionIssues(definition)];
+    const errors = [
+      ...staticIssues(definition),
+      ...unknownAliases,
+      ...unknownFunctionIssues(definition),
+      ...unknownFormatIssues(definition),
+    ];
     const warnings = [...customFunctionIssues(definition), ...notAllowedInline];
     if (errors.length > 0) return { valid: false, errors, warnings };
     // Loading would mean running custom functions or reading files, URLs or packages.
     if (warnings.length > 0) return { valid: true, errors, warnings };
 
-    const loaded = await bundleInline(rewriteExtends(definition, this.resolveExtends));
+    const loaded = await bundleInline(prepareForBundling(definition, this.resolveExtends));
     return loaded.ok
       ? { valid: true, errors: [], warnings: [] }
       : { valid: false, errors: loaded.issues, warnings: [] };
@@ -249,9 +256,10 @@ function staticIssues(definition: Json): Issue[] {
 }
 
 /**
- * Bundles a ruleset definition that passed the inline policy, from an in-memory entry file. Every
- * `extends` entry is by now an alias or the path of a server-configured ruleset, and there are no
- * custom functions, so the bundler only reads trusted files.
+ * Bundles a ruleset definition that passed the inline policy, from an in-memory entry file. By now
+ * every `extends` entry is an alias or the path of a server-configured ruleset, every function and
+ * format name is a package export, and there are no custom functions. So the bundler only reads
+ * trusted files and resolves known names.
  */
 async function bundleInline(definition: Json): Promise<RulesetResult> {
   const entry = path.join(INLINE_DIR, `ruleset-${++inlineCounter}.json`);
