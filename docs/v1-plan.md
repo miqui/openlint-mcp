@@ -33,8 +33,8 @@ All are already on npm:
 | `@openlint/openlint-core` | 0.1.1 | `OpenLint`, `Document`, `Ruleset`, `Rule`, `assertValidRuleset`, `RulesetValidationError` |
 | `@openlint/openlint-parsers` | 1.0.0 | `Yaml` / `Json` parsers for documents and inline rulesets |
 | `@openlint/openlint-rulesets` | 0.1.0 | `oas`, `asyncapi`, `arazzo` ruleset objects |
-| `@openlint/openlint-ruleset-bundler` | 0.1.1 | `bundleAndLoadRuleset` (`/with-loader`) for ruleset **files** (YAML/JSON/JS) |
-| `@openlint/openlint-ruleset-migrator` | 0.1.0 | Resolving `extends: spectral:oas`-style aliases in YAML/JSON rulesets |
+| `@openlint/openlint-ruleset-bundler` | 0.1.1 | `bundleAndLoadRuleset` (`/with-loader`) for ruleset files (YAML/JSON/JS) and inline rulesets (see Ruleset sources). It runs the migrator, which resolves `spectral:oas`-style aliases, so the migrator isn't a direct dependency. |
+| `@openlint/openlint-functions` | 0.1.0 | Names of the built-in functions, for checking `then.function` |
 | `@openlint/openlint-runtime` | 0.0.1 | `fetch` for the loader's `io` |
 | `@openlint/openlint-ref-resolver` | 0.1.0 | Building a resolver with external refs turned off (see Safety) |
 | `@modelcontextprotocol/sdk` | ^1.32 | Server, stdio transport, in-memory transport for tests |
@@ -74,7 +74,10 @@ All tools are read-only. None of them write files.
 ### `list_rulesets`
 
 - **Input:** none
-- **Output:** the configured rulesets, `{ name, source, isDefault, ruleCount, formats }[]`
+- **Output:** `{ rulesets: { name, source, isDefault, ruleCount, formats }[] }`, the configured rulesets
+- **Notes:**
+  - `ruleCount` counts enabled rules, which are the ones `lint_document` runs. For example, `oas` has 57 rules, 46 of them enabled.
+  - Rulesets passed inline aren't listed, because they only exist for one call. P0lip suggested listing them on #13. We decided not to, for that reason.
 
 ### `list_rules`
 
@@ -93,37 +96,59 @@ All tools are read-only. None of them write files.
 ### `validate_ruleset`
 
 - **Input:** `content` (YAML or JSON string)
-- **Output:** `{ valid: boolean, errors: { message, path }[] }`, built from `RulesetValidationError`
-- **Note:** JS rulesets aren't supported in v1.
+- **Output:** `{ valid: boolean, errors: { message, path }[], warnings: { message, path }[] }`
+- **Notes:**
+  - Validation runs no code. Core's `assertValidRuleset(definition, 'json')` checks the YAML/JSON form, which names functions as strings, so no placeholder functions are needed. On top of that, every `then.function` must be built in or declared in `functions`.
+  - `valid` means the ruleset is well formed. `warnings` list what `lint_document` would refuse inline, such as custom functions or extending files, URLs or packages. Those rulesets can still be configured with `--ruleset`.
+  - If there are no warnings, the ruleset is also loaded the way `lint_document` loads it, so `valid` covers its `extends` too.
+  - JS rulesets aren't supported in v1.
 
 ## Ruleset sources
 
-1. **Startup default:** `openlint-mcp --ruleset ./.openlint.yaml`, or the `OPENLINT_RULESET` env var. It is loaded with `bundleAndLoadRuleset`, so YAML, JSON and JS files all work. This is set by whoever runs the server, so it is trusted.
-2. **Named extras** (optional): `--ruleset name=path`, which can be repeated. These show up in `list_rulesets`.
-3. **Fallback** when nothing is configured: the `oas`, `asyncapi` and `arazzo` exports of `@openlint/openlint-rulesets`, recommended rules only. `list_rulesets` labels them by package rather than calling them "core" rulesets.
-4. **Per-call inline** (`ruleset` given as YAML/JSON text): parsed, aliases resolved, then validated. This text comes from the caller, so it is untrusted (see Safety).
+1. **Startup default:** `openlint-mcp --ruleset ./.openlint.yaml`, or the `OPENLINT_RULESET` env var. The flag wins when both are set. It is loaded with `bundleAndLoadRuleset`, so YAML, JSON and JS files all work, including custom functions. This is set by whoever runs the server, so it is trusted.
+2. **Named extras** (optional): `--ruleset name=path`, which can be repeated. These show up in `list_rulesets`. Without an unnamed `--ruleset`, the first named one is the default. `oas`, `asyncapi` and `arazzo` are reserved names.
+3. **Fallback** when nothing is configured (open question 2, decided): the `oas`, `asyncapi` and `arazzo` exports of `@openlint/openlint-rulesets`, recommended rules only.
+   - `list_rulesets` labels them by package, not as "core" rulesets, and marks all three as defaults.
+   - The default ruleset extends all three. Each rule only runs on documents of its own formats.
+4. **Per-call inline** (`ruleset` given as YAML/JSON text): parsed, checked against the inline policy (see Safety), validated, then loaded. This text comes from the caller, so it is untrusted.
+   - `oas`, `asyncapi` and `arazzo` can always be used in an inline `extends`, even when other rulesets are configured. `extends: [oas]` is the preferred form.
+   - A tool's `ruleset` argument can also be one of those names, a configured name or an alias.
 
-**Spike needed:** the migrator's `migrateRuleset(filepath, { fs, … })` expects a file path. For inline text we have two options:
-- the bundler's `stdin` plugin, which the CLI uses for rulesets read from stdin
-- an in-memory `fs`
+Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and exit with status 1. The server never falls back silently. MCP clients often start servers with an unexpected working directory, so the README should recommend absolute ruleset paths.
 
-Pick one in PR 2. If neither works cleanly, open a small upstream PR to export a content-based helper. That is the "expose missing members" route P0lip suggested.
+**Spike result (PR 2):** inline rulesets are loaded with `bundleAndLoadRuleset` from an in-memory entry file.
+- **How it works:**
+  - The entry is a `.json` path inside the package that never exists on disk. An `io.fs` wrapper serves its content, so the bundler resolves `@openlint/*` from our dependencies.
+  - Before bundling, each allowed `extends` name is rewritten. A configured ruleset's name becomes its trusted file path. `oas`, `asyncapi` and `arazzo` become their `openlint:` aliases.
+- **Why not the alternatives:**
+  - The `stdin` plugin doesn't fit, because it feeds JS source, not YAML/JSON.
+  - Building a `Ruleset` by hand would mean copying the migrator's alias, format and function tables.
+- **Results:**
+  - An inline `extends: [my-org]` keeps `my-org`'s custom functions working.
+  - Nothing beyond the entry file was read for any input the policy allows.
+  - No upstream helper is needed.
 
 ## Safety
 
 - **No document reads from disk or network in v1.** Input is `content` only.
 - **External `$ref`s:** by default the resolver would follow `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag. The plan is a resolver from `@openlint/openlint-ref-resolver` that has no `file` or `http` handlers, passed through `OpenLint`'s `resolver` option. Confirm this in PR 3.
-- **No custom JS from callers.** Inline rulesets that declare `functions` or `functionsDir` are rejected. Custom functions are only allowed in the startup ruleset.
+- **No custom JS from callers.**
+  - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.
+  - Every inline `then.function` must name a built-in function from `@openlint/openlint-functions`.
+  - Custom functions are only allowed in rulesets configured at startup.
 - **Inline `extends` is limited to an allowlist.** Each entry may only be one of:
   - the name of a configured ruleset
-  - a `spectral:*` or `openlint:*` alias
+  - `oas`, `asyncapi` or `arazzo`
+  - one of the exact aliases the migrator knows: `spectral:oas`, `spectral:asyncapi`, `spectral:arazzo`, `openlint:openapi`, `openlint:asyncapi`, `openlint:arazzo`
+
+  A prefix match on `spectral:*` or `openlint:*` would not be safe. The migrator resolves any other name, such as `spectral:bogus`, as a file path relative to the ruleset. Name lookups use a `Map`, so names like `constructor` or `__proto__` don't match `Object` prototype keys.
 
   Anything else is rejected before the migrator or bundler sees it:
   - URLs: the remote ruleset could pull in and run remote JS
   - relative or absolute paths: these read files on the server's disk
   - npm package names: these trigger package resolution
 
-  The same check applies to entries inside `overrides`. Without it, the `functions` rule above could be bypassed.
+  The same check applies to entries inside `overrides`, and to plain-string, list and `[name, severity]` forms. Without it, the `functions` rule above could be bypassed. Tests check that `fs.promises.readFile` isn't called for any rejected ruleset.
 
 ## Repo setup (PR 1)
 
@@ -161,14 +186,19 @@ Mirrors the OpenLint monorepo conventions:
 
 ### Milestone 2 notes
 
-Points raised while reviewing the plan against #13. Settle each one in PR 2.
+Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
-- **Custom functions stay supported.** Only inline rulesets from callers are restricted. The startup and named rulesets can use `functions`, `functionsDir` and JS rulesets. Say so in the README so the `functions` rejection isn't read as "no custom functions".
-- **Inline rulesets that extend a configured ruleset.** `extends: [my-org]` is allowed, so an inline ruleset should inherit `my-org`'s rules, including rules that use its custom functions. Check how the bundler resolves those functions when the extending ruleset is inline text with no file path. Fix it or document the limit, and add a test either way.
-- **`validate_ruleset` checks structure without running functions.** Rejecting every ruleset that declares `functions` would defeat the reason kinlane wanted this tool in v1: agents write rulesets but get them wrong. Validate YAML/JSON structure, including `functions`, without loading any code. Only `lint_document` rejects inline functions. Unverified: whether core's validation accepts a rule that names a function it hasn't loaded. If not, pass placeholder functions that are never called. JS rulesets stay out of v1, as kinlane suggested.
-- **`list_rulesets` and per-call rulesets.** P0lip suggested listing "the startup default plus anything passed per call". This plan lists configured rulesets only, because inline rulesets last for a single call. Confirm with P0lip on #13, or record why we differ.
-- **Fallback and "core" rulesets.** P0lip noted there are no real "core" rulesets. A fallback that loads `oas`, `asyncapi` and `arazzo` without being configured can still look like built-ins. Decide open question 2 with that in mind: load none and tell the agent to configure one, or present the three as the server's default configuration rather than part of OpenLint.
-- **Prefer configured names over aliases in inline `extends`.** P0lip called `spectral:*` aliases a backward-compatibility shim. The allowlist already accepts configured ruleset names, so document `extends: [oas]` as the main form. Keep `spectral:*` / `openlint:*` for existing Spectral rulesets.
+- **Custom functions stay supported.** Only inline rulesets from callers are restricted. The startup and named rulesets can use `functions`, `functionsDir` and JS rulesets. *Settled:* covered by tests, including YAML and JS rulesets loaded from outside the package directory. The README (PR 5) still needs to say this, so the `functions` rejection isn't read as "no custom functions".
+- **Inline rulesets that extend a configured ruleset.** *Settled:* this works. An inline `extends: [my-org]` is rewritten to `my-org`'s trusted file path, so its custom functions load as they do at startup. It's tested for the plain-string, list and `[name, severity]` forms.
+- **`validate_ruleset` checks structure without running functions.** *Settled:* see the `validate_ruleset` notes. Core's JSON-mode validation accepts function names it hasn't loaded, so no placeholders are needed. Rulesets with `functions` are valid and come back with a warning. JS rulesets stay out of v1, as kinlane suggested.
+- **`list_rulesets` and per-call rulesets.** *Settled:* configured rulesets only. The reason is recorded under `list_rulesets` and can still be confirmed with P0lip on #13.
+- **Fallback and "core" rulesets.** *Settled:* open question 2 is decided (load all three). They are presented as the server's default configuration and labelled by package.
+- **Prefer configured names over aliases in inline `extends`.** *Settled:* `oas`, `asyncapi` and `arazzo` are always accepted, and the `spectral:` / `openlint:` aliases stay for existing Spectral rulesets. The README (PR 5) should document `extends: [oas]` as the main form.
+
+### Milestone 3 notes
+
+- **Inline `overrides`.** An inline ruleset's `overrides[].files` globs resolve against the in-memory entry file, which has no real directory. Decide how `lint_document` names the document (its `source`), then either make `files` meaningful for inline rulesets or reject `overrides` inline.
+- **Bundling cost.** Each inline ruleset is bundled on every call. If that turns out to be slow in practice, cache loaded rulesets by content.
 
 ## Later (v1.1+)
 
@@ -179,12 +209,13 @@ Points raised while reviewing the plan against #13. Settle each one in PR 2.
 
 ## Upstream follow-ups (small PRs to `openlint/openlint`)
 
-- Add the missing `openlint:oas` alias in `packages/ruleset-migrator/src/transformers/extends.ts`. `openlint:asyncapi` and `openlint:arazzo` exist, but `openlint:oas` doesn't.
-- JS (`.mjs`) rulesets that import `oas` crash in the CLI on OAS 3.0 documents: `oasDocumentSchema … a is not a function`. The same ruleset works through `core` directly, so the bug is likely in the bundler path. The published packages don't hit it with a YAML ruleset, but a startup `--ruleset` written in JS might. Reproduce it during PR 2 and file it.
-- Export a content-based ruleset loader, if the spike shows one is needed.
+- **Optional:** add an `openlint:oas` alias in `packages/ruleset-migrator/src/transformers/extends.ts` for symmetry with `spectral:oas`. The OpenAPI alias is `openlint:openapi`, so nothing is missing, but `openlint:oas` is an easy guess. Today it is resolved as a file path and fails.
+- **JS rulesets crashing in the CLI:** `.mjs` rulesets that import `oas` crash on OAS 3.0 documents with `oasDocumentSchema … a is not a function`. *PR 2:* this doesn't reproduce through the published bundler. `bundleAndLoadRuleset` loads such a ruleset from outside the package directory and lints OAS 3.0 correctly, so the bug is likely in the CLI. Reproduce it with the CLI before filing.
+- **Possible core limitation:** core can't extend a ruleset that uses aliases, such as `oas`, inside `overrides`. It fails with `Alias "ArrayProperties" does not exist`. Check whether that's intended (Spectral may behave the same) before filing.
+- ~~Export a content-based ruleset loader.~~ Not needed: the spike works with the bundler as published.
 
 ## Open questions
 
 1. What npm name to use before the transfer: unpublished, `@miqui/openlint-mcp`, or ask now for `@openlint/openlint-mcp`?
-2. Should the fallback load all three rulesets, or start with none and tell the agent to configure one?
+2. ~~Should the fallback load all three rulesets, or start with none and tell the agent to configure one?~~ Decided in PR 2: load all three (see Ruleset sources).
 3. Should `lint_document` accept a `format` hint (`yaml|json`), or always parse as YAML (a superset of JSON)?
