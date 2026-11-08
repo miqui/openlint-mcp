@@ -135,7 +135,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 - **Why it changed:** in PR 2, inline rulesets were bundled from an in-memory entry file. That bundled a configured ruleset again whenever an inline ruleset extended it, re-reading its files and re-running its code. `lint_document` would have done that on every call. PR 2 avoided building by hand because it meant copying the migrator's tables. The policy now limits names to package exports and loaded rulesets, so nothing needs copying.
 - **Results:**
   - An inline `extends: [my-org]` keeps `my-org`'s custom functions working, and its files aren't read again.
-  - Inline rulesets read no files, fetch nothing, generate no code, and run only built-in functions.
+  - Inline rulesets read no files, fetch nothing, and run only built-in functions.
   - `overrides` of an extended ruleset don't apply. Core only applies `overrides` on the top-level ruleset, and that was already true with the bundler.
 
 ## Safety
