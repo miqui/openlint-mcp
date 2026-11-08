@@ -15,6 +15,7 @@ import {
   RULESET_ALIASES,
   customFunctionIssues,
   extendsIssues,
+  extendsRefs,
   isObject,
   isPackageRulesetName,
   prepareForBundling,
@@ -69,6 +70,8 @@ interface Entry {
   readonly ruleset: Ruleset;
   /** What an inline `extends` naming this ruleset is rewritten to: a trusted file path or an alias. */
   readonly extendsAs: string;
+  /** Loaded from a file at startup. Loading it again would read its files and run its code. */
+  readonly fromFile: boolean;
 }
 
 export class RulesetService {
@@ -92,7 +95,7 @@ export class RulesetService {
         const details = toIssues(error).map(formatIssue).join('\n  ');
         throw new RulesetLoadError(`Failed to load ruleset "${spec.name}" from ${spec.path}:\n  ${details}`);
       }
-      entries.push(createEntry(spec.name, spec.path, spec.isDefault, ruleset, spec.path));
+      entries.push(createEntry(spec.name, spec.path, spec.isDefault, ruleset, spec.path, true));
     }
     const defaultEntry = entries.find(entry => entry.info.isDefault) ?? entries[0];
     if (defaultEntry === undefined) throw new RulesetLoadError('No ruleset is configured.');
@@ -105,7 +108,7 @@ export class RulesetService {
    */
   static fallback(): RulesetService {
     const entries = PACKAGE_RULESET_NAMES.map(name =>
-      createEntry(name, `${PACKAGE_SOURCE} (${name})`, true, packageRuleset(name), PACKAGE_ALIASES[name]),
+      createEntry(name, `${PACKAGE_SOURCE} (${name})`, true, packageRuleset(name), PACKAGE_ALIASES[name], false),
     );
     const combined = new Ruleset(
       { extends: PACKAGE_RULESET_NAMES.map(name => PACKAGE_RULESETS[name]) },
@@ -126,10 +129,8 @@ export class RulesetService {
     if (ruleset === undefined) return { ok: true, ruleset: this.defaultRuleset };
 
     const name = ruleset.trim();
-    const entry = this.entries.find(candidate => candidate.info.name === name);
-    if (entry !== undefined) return { ok: true, ruleset: entry.ruleset };
-    const packageName = isPackageRulesetName(name) ? name : RULESET_ALIASES.get(name);
-    if (packageName !== undefined) return { ok: true, ruleset: this.packageRuleset(packageName) };
+    const named = this.rulesetByName(name);
+    if (named !== undefined) return { ok: true, ruleset: named };
 
     if (/^[\w.:@/-]+$/.test(name)) {
       return {
@@ -186,6 +187,13 @@ export class RulesetService {
     // Loading would mean running custom functions or reading files, URLs or packages.
     if (warnings.length > 0) return { valid: true, errors, warnings };
 
+    // Extending a ruleset configured from a file would load its files and run its code again, so
+    // check against the copy loaded at startup instead of bundling.
+    if (this.extendsConfiguredFile(definition)) {
+      const unknownRules = this.unknownRuleOverrides(definition);
+      return { valid: unknownRules.length === 0, errors: unknownRules, warnings: [] };
+    }
+
     const loaded = await bundleInline(prepareForBundling(definition, this.resolveExtends));
     return loaded.ok
       ? { valid: true, errors: [], warnings: [] }
@@ -198,6 +206,40 @@ export class RulesetService {
     if (isPackageRulesetName(name)) return PACKAGE_ALIASES[name];
     return RULESET_ALIASES.has(name) ? name : undefined;
   };
+
+  /** A configured or package ruleset (or alias) by name, as already loaded. */
+  private rulesetByName(name: string): Ruleset | undefined {
+    const entry = this.entries.find(candidate => candidate.info.name === name);
+    if (entry !== undefined) return entry.ruleset;
+    const packageName = isPackageRulesetName(name) ? name : RULESET_ALIASES.get(name);
+    return packageName === undefined ? undefined : this.packageRuleset(packageName);
+  }
+
+  private extendsConfiguredFile(definition: Json): boolean {
+    return extendsRefs(definition).some(
+      ref => typeof ref.name === 'string' && this.entries.some(entry => entry.fromFile && entry.info.name === ref.name),
+    );
+  }
+
+  /**
+   * Rules that only set a severity must exist in an extended ruleset; core rejects them otherwise.
+   * Checks the top-level `rules` against the top-level `extends`.
+   */
+  private unknownRuleOverrides(definition: Json): Issue[] {
+    const known = new Set<string>();
+    for (const ref of extendsRefs(definition)) {
+      if (ref.path[0] === 'overrides' || typeof ref.name !== 'string') continue;
+      for (const rule of Object.keys(this.rulesetByName(ref.name)?.rules ?? {})) known.add(rule);
+    }
+    const { rules } = definition;
+    if (!isObject(rules)) return [];
+    return Object.entries(rules)
+      .filter(([name, rule]) => !isObject(rule) && !known.has(name))
+      .map(([name]) => ({
+        message: `Rule "${name}" isn't defined in the rulesets this ruleset extends.`,
+        path: ['rules', name],
+      }));
+  }
 
   private allowedNames(): string[] {
     return [...new Set([...this.entries.map(entry => entry.info.name), ...PACKAGE_RULESET_NAMES])];
@@ -217,14 +259,26 @@ function packageRuleset(name: PackageRulesetName): Ruleset {
   return new Ruleset(PACKAGE_RULESETS[name], { severity: 'recommended' });
 }
 
-function createEntry(name: string, source: string, isDefault: boolean, ruleset: Ruleset, extendsAs: string): Entry {
+function createEntry(
+  name: string,
+  source: string,
+  isDefault: boolean,
+  ruleset: Ruleset,
+  extendsAs: string,
+  fromFile: boolean,
+): Entry {
   const enabled = Object.values(ruleset.rules).filter(rule => rule.enabled);
   const formats = new Set<string>();
   for (const format of ruleset.formats) formats.add(format.displayName ?? format.name);
   for (const rule of enabled) {
     for (const format of rule.formats ?? []) formats.add(format.displayName ?? format.name);
   }
-  return { info: { name, source, isDefault, ruleCount: enabled.length, formats: [...formats] }, ruleset, extendsAs };
+  return {
+    info: { name, source, isDefault, ruleCount: enabled.length, formats: [...formats] },
+    ruleset,
+    extendsAs,
+    fromFile,
+  };
 }
 
 type ParseResult = { readonly ok: true; readonly definition: Json } | { readonly ok: false; readonly issues: Issue[] };

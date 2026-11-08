@@ -291,7 +291,11 @@ describe('validate', () => {
       errors: [],
       warnings: [],
     });
-    expect(await configured.validate('extends: [default]\n')).toEqual({ valid: true, errors: [], warnings: [] });
+    expect(await configured.validate('extends: [default]\nrules:\n  org-title: warn\n')).toEqual({
+      valid: true,
+      errors: [],
+      warnings: [],
+    });
   });
 
   it('accepts custom functions and file extends, with warnings for inline use', async () => {
@@ -326,6 +330,25 @@ describe('validate', () => {
     });
     expect(await fallback.validate('{}')).toMatchObject({ valid: false, errors: [{ path: [] }] });
     expect((await fallback.validate('rules: [1\n')).valid).toBe(false);
+  });
+
+  it("doesn't load configured rulesets again, and checks rule overrides against them", async () => {
+    const readFile = vi.spyOn(fs.promises, 'readFile');
+    expect(await configured.validate('extends: [default]\nrules:\n  org-title: off\n')).toMatchObject({ valid: true });
+    expect(await configured.validate('extends: [[default, all], oas]\nrules:\n  info-contact: off\n')).toMatchObject({
+      valid: true,
+    });
+    expect(await configured.validate('extends: [default]\nrules:\n  no-such-rule: off\n')).toEqual({
+      valid: false,
+      errors: [
+        {
+          message: 'Rule "no-such-rule" isn\'t defined in the rulesets this ruleset extends.',
+          path: ['rules', 'no-such-rule'],
+        },
+      ],
+      warnings: [],
+    });
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it('does not read files', async () => {
