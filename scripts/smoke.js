@@ -55,6 +55,18 @@ await withServer([], async client => {
     arguments: { content: document, ruleset: inlineRuleset },
   });
   check(inline?.diagnostics?.[0]?.code === 'need-contact', 'lint_document lints with an inline ruleset');
+
+  const { structuredContent: rules } = await client.callTool({ name: 'list_rules', arguments: { format: 'swagger' } });
+  check(
+    rules?.rules?.some(rule => rule.name === 'oas2-api-host'),
+    'list_rules filters by format',
+  );
+
+  const { structuredContent: rule } = await client.callTool({
+    name: 'explain_rule',
+    arguments: { rule: 'operation-tags' },
+  });
+  check(rule?.given?.[0] === '#OperationObject', 'explain_rule explains a rule');
 });
 
 await withServer(['--allow-external-refs'], async client => {
