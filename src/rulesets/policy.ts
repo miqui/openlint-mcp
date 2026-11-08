@@ -1,10 +1,11 @@
 /**
  * Checks on ruleset definitions in their YAML/JSON form (function names, format names and `extends`
- * entries are strings). Inline rulesets come from tool callers, so they are untrusted: they may not
- * run custom code or make the bundler read files, fetch URLs or resolve packages.
+ * entries are strings), and the mapping of inline rulesets to the JS form core's `Ruleset` takes.
  *
- * Every such name in an inline ruleset must come from a fixed set: built-in functions, format
- * exports, ruleset aliases and configured rulesets. Anything else is rejected before bundling.
+ * Inline rulesets come from tool callers, so they are untrusted. Every name in one must come from a
+ * fixed set: built-in functions, format exports, package rulesets and their aliases, and configured
+ * rulesets. Each name is then replaced by the object it names, and the ruleset is built with core
+ * directly: nothing is bundled, read from disk, fetched or run apart from built-in functions.
  */
 import * as builtinFunctions from '@openlint/openlint-functions';
 import * as formatExports from '@openlint/openlint-formats';
@@ -18,11 +19,9 @@ export function isObject(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** Function names exported by `@openlint/openlint-functions`. */
-export const BUILTIN_FUNCTIONS: ReadonlySet<string> = new Set(
-  Object.entries(builtinFunctions)
-    .filter(([name, value]) => name !== 'default' && typeof value === 'function')
-    .map(([name]) => name),
+/** Functions exported by `@openlint/openlint-functions`, by name. */
+export const BUILTIN_FUNCTIONS: ReadonlyMap<string, unknown> = new Map(
+  Object.entries(builtinFunctions).filter(([name, value]) => name !== 'default' && typeof value === 'function'),
 );
 
 /**
@@ -74,19 +73,12 @@ export const RULESET_ALIASES: ReadonlyMap<string, PackageRulesetName> = new Map(
   ['openlint:arazzo', 'arazzo'],
 ]);
 
-/** The alias an inline `extends: [oas]` (and friends) is rewritten to before bundling. */
-export const PACKAGE_ALIASES: Readonly<Record<PackageRulesetName, string>> = {
-  oas: 'openlint:openapi',
-  asyncapi: 'openlint:asyncapi',
-  arazzo: 'openlint:arazzo',
-};
-
 export function isPackageRulesetName(name: string): name is PackageRulesetName {
   return (PACKAGE_RULESET_NAMES as readonly string[]).includes(name);
 }
 
-/** Maps an `extends` name to what the bundler should see, or `undefined` when it isn't allowed. */
-export type ExtendsResolver = (name: string) => string | undefined;
+/** Maps an `extends` name to the ruleset definition it names, or `undefined` when it isn't allowed. */
+export type ExtendsResolver = (name: string) => object | undefined;
 
 interface Scope {
   readonly definition: Json;
@@ -195,6 +187,22 @@ export function declaredFunctions(definition: Json): Set<string> {
   return new Set(Array.isArray(functions) ? functions.filter((name): name is string => typeof name === 'string') : []);
 }
 
+/**
+ * `overrides`, whose `files` patterns match document paths relative to the ruleset's own file. An
+ * inline ruleset has no file, so they can't match anything meaningful.
+ */
+export function overridesIssues(definition: Json): Issue[] {
+  return 'overrides' in definition
+    ? [
+        {
+          message:
+            "Inline rulesets can't use overrides: their files patterns need a ruleset file to be relative to. Rulesets with overrides must be configured on the server with --ruleset.",
+          path: ['overrides'],
+        },
+      ]
+    : [];
+}
+
 /** `functions` and `functionsDir`, which load JavaScript, anywhere in the ruleset. */
 export function customFunctionIssues(definition: Json): Issue[] {
   const issues: Issue[] = [];
@@ -217,7 +225,7 @@ export function unknownFunctionIssues(definition: Json): Issue[] {
   return functionRefs(definition)
     .filter(ref => typeof ref.name === 'string' && !BUILTIN_FUNCTIONS.has(ref.name) && !declared.has(ref.name))
     .map(ref => ({
-      message: `Unknown function "${String(ref.name)}". Use a built-in function (${[...BUILTIN_FUNCTIONS].join(', ')}) or declare it in "functions".`,
+      message: `Unknown function "${String(ref.name)}". Use a built-in function (${[...BUILTIN_FUNCTIONS.keys()].join(', ')}) or declare it in "functions".`,
       path: ref.path,
     }));
 }
@@ -258,18 +266,24 @@ export function extendsIssues(
 }
 
 /**
- * A copy of a definition that passed the inline policy, ready for the bundler: each `extends` name is
- * replaced by what `resolveExtends` returns, and each format name by its export name.
+ * The JS form of a definition that passed the inline policy, for core's `Ruleset`: function and
+ * format names become the exported functions, and `extends` names become the ruleset definitions
+ * `resolveExtends` returns. Those are shared objects, so they're referenced, never modified.
  */
-export function prepareForBundling(definition: Json, resolveExtends: ExtendsResolver): Json {
+export function toRulesetDefinition(definition: Json, resolveExtends: ExtendsResolver): Json {
   // A JSON round trip: the definition came from YAML/JSON, and `structuredClone` rejects the parser's objects.
   const copy = JSON.parse(JSON.stringify(definition)) as Json;
-  for (const ref of extendsRefs(copy)) {
-    const target = typeof ref.name === 'string' ? resolveExtends(ref.name) : undefined;
-    if (target !== undefined) setAt(copy, ref.path, target);
+  for (const ref of functionRefs(copy)) {
+    const fn = typeof ref.name === 'string' ? BUILTIN_FUNCTIONS.get(ref.name) : undefined;
+    if (fn !== undefined) setAt(copy, ref.path, fn);
   }
   for (const ref of formatRefs(copy)) {
-    const target = typeof ref.name === 'string' ? resolveFormat(ref.name) : undefined;
+    const name = typeof ref.name === 'string' ? resolveFormat(ref.name) : undefined;
+    if (name !== undefined) setAt(copy, ref.path, FORMATS.get(name));
+  }
+  // Last, so the walks above never reach into the shared definitions.
+  for (const ref of extendsRefs(copy)) {
+    const target = typeof ref.name === 'string' ? resolveExtends(ref.name) : undefined;
     if (target !== undefined) setAt(copy, ref.path, target);
   }
   return copy;

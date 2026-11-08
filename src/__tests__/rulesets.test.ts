@@ -37,7 +37,7 @@ describe('fallback rulesets', () => {
   });
 
   it('lints OpenAPI and AsyncAPI documents with the default ruleset', async () => {
-    const ruleset = rulesetOf(await fallback.resolve());
+    const ruleset = rulesetOf(fallback.resolve());
     expect(await lintCodes(ruleset)).toContain('oas3-schema');
     expect((await lintCodes(ruleset, ASYNCAPI)).some(code => code.startsWith('asyncapi'))).toBe(true);
   });
@@ -48,7 +48,14 @@ describe('configured rulesets', () => {
     expect(configured.list()).toEqual([
       { name: 'default', source: ORG, isDefault: true, ruleCount: 1, formats: ['OpenAPI 3.x'] },
     ]);
-    expect(await lintCodes(rulesetOf(await configured.resolve()))).toEqual(['org-title']);
+    expect(await lintCodes(rulesetOf(configured.resolve()))).toEqual(['org-title']);
+  });
+
+  it('reads the ruleset file at startup', async () => {
+    // Positive control for the readFile spies in this file: a real load is a read they see.
+    const readFile = vi.spyOn(fs.promises, 'readFile');
+    await RulesetService.fromConfig([{ name: 'default', path: ORG, isDefault: true }]);
+    expect(readFile.mock.calls.map(([file]) => (typeof file === 'string' ? path.resolve(file) : file))).toContain(ORG);
   });
 
   it('reports the ruleset name and path when loading fails', async () => {
@@ -75,14 +82,14 @@ describe('configured rulesets', () => {
       const service = await RulesetService.fromConfig([
         { name: 'default', path: path.join(dir, '.openlint.yaml'), isDefault: true },
       ]);
-      expect(await lintCodes(rulesetOf(await service.resolve()))).toEqual(['org-title']);
+      expect(await lintCodes(rulesetOf(service.resolve()))).toEqual(['org-title']);
     });
 
     it('loads a JS ruleset that imports a package ruleset and a custom function', async () => {
       const service = await RulesetService.fromConfig([
         { name: 'default', path: path.join(dir, 'ruleset.mjs'), isDefault: true },
       ]);
-      const codes = await lintCodes(rulesetOf(await service.resolve()));
+      const codes = await lintCodes(rulesetOf(service.resolve()));
       expect(codes).toContain('org-title');
       expect(codes).toContain('oas3-schema');
     });
@@ -91,14 +98,14 @@ describe('configured rulesets', () => {
 
 describe('resolve', () => {
   it('finds configured rulesets, package rulesets and aliases by name', async () => {
-    expect(rulesetOf(await configured.resolve('default'))).toBe(rulesetOf(await configured.resolve()));
+    expect(rulesetOf(configured.resolve('default'))).toBe(rulesetOf(configured.resolve()));
     for (const name of ['oas', 'spectral:oas', 'openlint:openapi', ' oas ']) {
-      expect(await lintCodes(rulesetOf(await configured.resolve(name)))).toContain('oas3-schema');
+      expect(await lintCodes(rulesetOf(configured.resolve(name)))).toContain('oas3-schema');
     }
   });
 
   it('reports unknown names instead of parsing them as YAML', async () => {
-    expect(issuesOf(await configured.resolve('nope'))).toEqual([
+    expect(issuesOf(configured.resolve('nope'))).toEqual([
       {
         message: expect.stringMatching(/^Unknown ruleset "nope"\. Use one of default, oas, asyncapi, arazzo/),
         path: [],
@@ -107,7 +114,7 @@ describe('resolve', () => {
   });
 
   it('loads anything else as an inline ruleset', async () => {
-    const ruleset = rulesetOf(await configured.resolve('extends: [default]\n'));
+    const ruleset = rulesetOf(configured.resolve('extends: [default]\n'));
     expect(await lintCodes(ruleset)).toEqual(['org-title']);
   });
 });
@@ -117,17 +124,17 @@ describe('inline rulesets', () => {
     'rules:\n  need-description:\n    given: $.info\n    then: { field: description, function: truthy }\n';
 
   it('loads rules that use built-in functions, from YAML or JSON', async () => {
-    expect(await lintCodes(rulesetOf(await fallback.loadInline(needDescription)))).toEqual(['need-description']);
+    expect(await lintCodes(rulesetOf(fallback.loadInline(needDescription)))).toEqual(['need-description']);
     const json = JSON.stringify({
       rules: { r: { given: '$.info', then: { field: 'description', function: 'truthy' } } },
     });
-    expect(await lintCodes(rulesetOf(await fallback.loadInline(json)))).toEqual(['r']);
+    expect(await lintCodes(rulesetOf(fallback.loadInline(json)))).toEqual(['r']);
   });
 
   it.each(['spectral:oas', 'openlint:openapi', 'oas'])(
     'extends %s, even when other rulesets are configured',
     async name => {
-      const ruleset = rulesetOf(await configured.loadInline(`extends: ["${name}"]\nrules:\n  oas3-schema: off\n`));
+      const ruleset = rulesetOf(configured.loadInline(`extends: ["${name}"]\nrules:\n  oas3-schema: off\n`));
       const codes = await lintCodes(ruleset);
       expect(codes).toContain('info-description');
       expect(codes).not.toContain('oas3-schema');
@@ -135,21 +142,20 @@ describe('inline rulesets', () => {
   );
 
   it('extends a configured ruleset, keeping its custom functions', async () => {
-    // Also the positive control for the readFile spies below: loading the configured ruleset's file
-    // through an inline extends is a read they must see.
+    // The configured ruleset is reused as loaded at startup: its files aren't read again.
     const readFile = vi.spyOn(fs.promises, 'readFile');
     for (const extendsValue of ['default', '[default]', '[[default, recommended]]']) {
-      const ruleset = rulesetOf(await configured.loadInline(`extends: ${extendsValue}\n${needDescription}`));
+      const ruleset = rulesetOf(configured.loadInline(`extends: ${extendsValue}\n${needDescription}`));
       expect((await lintCodes(ruleset)).sort()).toEqual(['need-description', 'org-title']);
     }
-    expect(readFile.mock.calls.map(([file]) => (typeof file === 'string' ? path.resolve(file) : file))).toContain(ORG);
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   it('extends a configured JS ruleset, keeping its imports and custom functions', async () => {
     const js = await RulesetService.fromConfig([
       { name: 'js', path: path.join(FIXTURES, 'org', 'ruleset.mjs'), isDefault: true },
     ]);
-    const codes = await lintCodes(rulesetOf(await js.loadInline('extends: [js]\nrules:\n  info-contact: off\n')));
+    const codes = await lintCodes(rulesetOf(js.loadInline('extends: [js]\nrules:\n  info-contact: off\n')));
     expect(codes).toContain('org-title');
     expect(codes).toContain('oas3-schema');
     expect(codes).not.toContain('info-contact');
@@ -166,26 +172,26 @@ describe('inline rulesets', () => {
     ['json-schema-draft7', 'JSON Schema Draft 7'],
   ])('resolves format %s against @openlint/openlint-formats', async (name, displayName) => {
     const content = `formats: [${JSON.stringify(name)}]\n${needDescription}`;
-    const ruleset = rulesetOf(await fallback.loadInline(content));
+    const ruleset = rulesetOf(fallback.loadInline(content));
     expect([...ruleset.formats].map(format => format.displayName)).toEqual([displayName]);
   });
 
   it('can turn off a rule of the ruleset it extends', async () => {
-    const ruleset = rulesetOf(await configured.loadInline('extends: [default]\nrules:\n  org-title: off\n'));
+    const ruleset = rulesetOf(configured.loadInline('extends: [default]\nrules:\n  org-title: off\n'));
     expect(await lintCodes(ruleset)).toEqual([]);
   });
 
-  it('rewrites extends inside overrides', async () => {
-    // Without the rewrite, the bundler would look for a module named "default" and fail. (Core can't
-    // extend a ruleset with aliases, such as oas, inside overrides, so this uses the configured one.)
+  it('rejects overrides, whose files patterns have no ruleset file to be relative to', async () => {
     const content = 'overrides:\n  - files: ["**"]\n    extends: [default]\n';
-    expect(rulesetOf(await configured.loadInline(content)).overrides).toHaveLength(1);
+    expect(issuesOf(configured.loadInline(content))).toEqual([
+      { message: expect.stringMatching(/^Inline rulesets can't use overrides/), path: ['overrides'] },
+    ]);
   });
 
   describe('rejected before anything is loaded', () => {
     const rejects = async (content: string, path: (string | number)[], message: RegExp) => {
       const readFile = vi.spyOn(fs.promises, 'readFile');
-      const issues = issuesOf(await configured.loadInline(content));
+      const issues = issuesOf(configured.loadInline(content));
       expect(issues).toContainEqual({ message: expect.stringMatching(message), path });
       expect(readFile).not.toHaveBeenCalled();
     };
@@ -286,20 +292,25 @@ describe('inline rulesets', () => {
 
 describe('validate', () => {
   it('accepts a valid ruleset', async () => {
-    expect(await fallback.validate('extends: [spectral:oas]\nrules:\n  info-contact: off\n')).toEqual({
+    expect(fallback.validate('extends: [spectral:oas]\nrules:\n  info-contact: off\n')).toEqual({
       valid: true,
       errors: [],
       warnings: [],
     });
-    expect(await configured.validate('extends: [default]\nrules:\n  org-title: warn\n')).toEqual({
+    expect(configured.validate('extends: [default]\nrules:\n  org-title: warn\n')).toEqual({
       valid: true,
       errors: [],
       warnings: [],
     });
   });
 
+  it('accepts overrides, with a warning for inline use', async () => {
+    const result = configured.validate('overrides:\n  - files: ["**/*.json"]\n    rules:\n      org-title: off\n');
+    expect(result).toMatchObject({ valid: true, errors: [], warnings: [{ path: ['overrides'] }] });
+  });
+
   it('accepts custom functions and file extends, with warnings for inline use', async () => {
-    const result = await fallback.validate(
+    const result = fallback.validate(
       'extends: [./base.yaml]\nfunctions: [hasTitle]\nrules:\n  r: { given: $.info, then: { function: hasTitle } }\n',
     );
     expect(result.valid).toBe(true);
@@ -308,44 +319,39 @@ describe('validate', () => {
   });
 
   it('reports formats that @openlint/openlint-formats does not export', async () => {
-    const result = await fallback.validate(
+    const result = fallback.validate(
       'formats: [oas3.1, asyncapi3]\nrules:\n  r: { given: $, then: { function: truthy } }\n',
     );
     expect(result).toMatchObject({ valid: false, errors: [{ path: ['formats', 1] }] });
   });
 
   it('reports functions that are neither built in nor declared', async () => {
-    const result = await fallback.validate(
+    const result = fallback.validate(
       'functions: [hasTitle]\nrules:\n  r: { given: $, then: { function: hasTittle } }\n',
     );
     expect(result).toMatchObject({ valid: false, errors: [{ path: ['rules', 'r', 'then', 'function'] }] });
   });
 
   it('reports schema errors, unknown aliases and parse errors', async () => {
-    const severity = await fallback.validate('rules:\n  r: { given: $, severity: loud, then: { function: truthy } }\n');
+    const severity = fallback.validate('rules:\n  r: { given: $, severity: loud, then: { function: truthy } }\n');
     expect(severity).toMatchObject({ valid: false, errors: [{ path: ['rules', 'r', 'severity'] }] });
-    expect(await fallback.validate('extends: [spectral:bogus]\n')).toMatchObject({
+    expect(fallback.validate('extends: [spectral:bogus]\n')).toMatchObject({
       valid: false,
       errors: [{ path: ['extends', 0] }],
     });
-    expect(await fallback.validate('{}')).toMatchObject({ valid: false, errors: [{ path: [] }] });
-    expect((await fallback.validate('rules: [1\n')).valid).toBe(false);
+    expect(fallback.validate('{}')).toMatchObject({ valid: false, errors: [{ path: [] }] });
+    expect(fallback.validate('rules: [1\n').valid).toBe(false);
   });
 
   it("doesn't load configured rulesets again, and checks rule overrides against them", async () => {
     const readFile = vi.spyOn(fs.promises, 'readFile');
-    expect(await configured.validate('extends: [default]\nrules:\n  org-title: off\n')).toMatchObject({ valid: true });
-    expect(await configured.validate('extends: [[default, all], oas]\nrules:\n  info-contact: off\n')).toMatchObject({
+    expect(configured.validate('extends: [default]\nrules:\n  org-title: off\n')).toMatchObject({ valid: true });
+    expect(configured.validate('extends: [[default, all], oas]\nrules:\n  info-contact: off\n')).toMatchObject({
       valid: true,
     });
-    expect(await configured.validate('extends: [default]\nrules:\n  no-such-rule: off\n')).toEqual({
+    expect(configured.validate('extends: [default]\nrules:\n  no-such-rule: off\n')).toEqual({
       valid: false,
-      errors: [
-        {
-          message: 'Rule "no-such-rule" isn\'t defined in the rulesets this ruleset extends.',
-          path: ['rules', 'no-such-rule'],
-        },
-      ],
+      errors: [{ message: 'Cannot extend non-existing rule: "no-such-rule"', path: expect.any(Array) }],
       warnings: [],
     });
     expect(readFile).not.toHaveBeenCalled();
@@ -353,7 +359,7 @@ describe('validate', () => {
 
   it('does not read files', async () => {
     const readFile = vi.spyOn(fs.promises, 'readFile');
-    await fallback.validate('extends: [/etc/passwd]\nfunctionsDir: /tmp\nrules: {}\n');
+    fallback.validate('extends: [/etc/passwd]\nfunctionsDir: /tmp\nrules: {}\n');
     expect(readFile).not.toHaveBeenCalled();
   });
 });

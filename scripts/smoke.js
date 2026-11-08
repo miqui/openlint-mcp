@@ -32,7 +32,7 @@ try {
     name: 'validate_ruleset',
     arguments: { content: 'extends: [oas]\nformats: [oas3.1]\nrules:\n  info-contact: off\n' },
   });
-  check(validated?.valid === true, 'validate_ruleset bundles an inline ruleset from dist');
+  check(validated?.valid === true, 'validate_ruleset builds an inline ruleset from dist');
 } finally {
   await client.close();
 }

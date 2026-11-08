@@ -46,6 +46,7 @@ export default tseslint.config(
       '@typescript-eslint/no-non-null-assertion': 'off',
       // expect.stringMatching() and friends are typed as any.
       '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/require-await': 'off',
     },
   },
 );
