@@ -26,7 +26,25 @@ export interface ServerConfig {
    * the AI tool, and following their refs would let them read local files and fetch URLs.
    */
   readonly allowExternalRefs: boolean;
+  /** Set when the command line asks for the version or help instead of starting the server. */
+  readonly show?: 'version' | 'help';
 }
+
+export const USAGE = `Usage: openlint-mcp [options]
+
+An MCP server for OpenLint over stdio. AI tools start it; it isn't meant to be run by hand.
+
+Options:
+  -r, --ruleset <path>         Default ruleset: a YAML, JSON or JS ruleset file
+  -r, --ruleset <name>=<path>  Extra named ruleset; can be repeated
+      --allow-external-refs    Let lint_document follow $refs to files and URLs
+  -v, --version                Print the version and exit
+  -h, --help                   Print this help and exit
+
+The default ruleset is the unnamed --ruleset, else OPENLINT_RULESET, else the first named
+ruleset. With none of them, the server uses the oas, asyncapi and arazzo rulesets from
+@openlint/openlint-rulesets.
+`;
 
 export class ConfigError extends Error {
   override readonly name = 'ConfigError';
@@ -46,13 +64,15 @@ const NAME_PATTERN = /^[A-Za-z][\w.-]*$/;
  * Relative paths resolve against `cwd`.
  */
 export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): ServerConfig {
-  let values: { ruleset?: string[]; 'allow-external-refs'?: boolean };
+  let values: { ruleset?: string[]; 'allow-external-refs'?: boolean; version?: boolean; help?: boolean };
   try {
     ({ values } = parseArgs({
       args: [...argv],
       options: {
         ruleset: { type: 'string', short: 'r', multiple: true },
         'allow-external-refs': { type: 'boolean' },
+        version: { type: 'boolean', short: 'v' },
+        help: { type: 'boolean', short: 'h' },
       },
       strict: true,
       allowPositionals: false,
@@ -60,6 +80,11 @@ export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv, cwd
   } catch (error) {
     throw new ConfigError(error instanceof Error ? error.message : String(error));
   }
+
+  const allowExternalRefs = values['allow-external-refs'] === true;
+  // Before the rulesets are checked, so help and the version work while a configuration is wrong.
+  const show = values.help === true ? 'help' : values.version === true ? 'version' : undefined;
+  if (show !== undefined) return { rulesets: [], allowExternalRefs, show };
 
   let unnamed: string | undefined;
   const named: { name: string; path: string }[] = [];
@@ -102,5 +127,5 @@ export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv, cwd
     specs.push({ name, path: path.resolve(cwd, rulesetPath), isDefault: specs.length === 0 });
   }
 
-  return { rulesets: specs, allowExternalRefs: values['allow-external-refs'] === true };
+  return { rulesets: specs, allowExternalRefs };
 }

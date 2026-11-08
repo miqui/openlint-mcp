@@ -5,3 +5,5 @@ package-lock.json
 LICENSE
 .claude/
 docs/v1-plan.md
+CHANGELOG.md
+release/
