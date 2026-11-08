@@ -40,7 +40,7 @@ All are already on npm:
 | `@modelcontextprotocol/sdk` | ^1.32 | Server, stdio transport, in-memory transport for tests |
 | `zod` | ^4 | Tool input schemas |
 
-Core is CommonJS. This package is ESM and imports core by name. It needs Node `^22 || >=24`, the same as the CLI.
+Core is CommonJS. This package is ESM and imports core by name. It needs Node `^22.22.1 || >=24`. That's the CLI's `^22 || >=24`, with the 22.x minimum raised to 22.22.1 because the dev toolchain needs it (lint-staged).
 
 **Checked against the published npm packages** (not the monorepo build), 2026-11-07:
 - Named ESM imports work: `{ OpenLint, Document }` from core, `{ Yaml }` from parsers, `{ oas }` from rulesets, and `{ bundleAndLoadRuleset }` from the bundler's `/with-loader` entry.
