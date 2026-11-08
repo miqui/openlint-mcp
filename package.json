@@ -1,0 +1,80 @@
+{
+  "name": "@openlint/openlint-mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MCP server for OpenLint: lint OpenAPI, AsyncAPI and Arazzo documents, look up rules and check rulesets.",
+  "keywords": [
+    "mcp",
+    "model context protocol",
+    "openlint",
+    "linter",
+    "OpenAPI",
+    "AsyncAPI",
+    "Arazzo"
+  ],
+  "homepage": "https://github.com/miqui/openlint-mcp",
+  "bugs": "https://github.com/miqui/openlint-mcp/issues",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/miqui/openlint-mcp"
+  },
+  "license": "Apache-2.0",
+  "type": "module",
+  "bin": {
+    "openlint-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": "^22.22.1 || >=24"
+  },
+  "scripts": {
+    "build": "npm run tsc -- -p tsconfig.build.json",
+    "clean": "node -e \"for (const d of ['dist', '.cache', 'coverage']) require('node:fs').rmSync(d, { recursive: true, force: true })\"",
+    "lint": "npm run lint.prettier && npm run lint.eslint && npm run lint.tsc",
+    "lint.eslint": "eslint --cache --cache-location .cache/.eslintcache .",
+    "lint.fix": "prettier --write . && eslint --fix .",
+    "lint.prettier": "prettier --check .",
+    "lint.tsc": "npm run tsc -- -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "prepare": "node .husky/install.mjs",
+    "test": "vitest run",
+    "tsc": "node ./node_modules/typescript7/bin/tsc"
+  },
+  "release": {
+    "branches": [
+      "main"
+    ]
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix --cache --cache-location .cache/.eslintcache",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.20.5",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.7",
+    "globals": "^17.14.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.9.10",
+    "semantic-release": "^25.0.9",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "typescript7": "npm:typescript@^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
