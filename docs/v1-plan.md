@@ -224,7 +224,7 @@ Mirrors the OpenLint monorepo conventions:
 
 - **No npm until the transfer** (open question 1). The package stays `private: true`, and semantic-release runs with `npmPublish: false`.
 - **What a release does:** `release.yml` runs on pushes to `main`, after CI (`ci.yml` through `workflow_call`). semantic-release:
-  - picks the version from the conventional commits (the first release is 1.0.0)
+  - picks the version from the conventional commits. Versions start at 0.x: a `v0.0.0` baseline tag on the repository's first commit makes the first release 0.1.0, with notes covering the whole history.
   - writes `CHANGELOG.md`
   - commits the version bump (`chore(release): x.y.z [skip ci]`)
   - tags it
