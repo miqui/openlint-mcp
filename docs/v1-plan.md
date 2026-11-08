@@ -40,7 +40,7 @@ All are already on npm:
 | `@modelcontextprotocol/sdk` | ^1.32 | Server, stdio transport, in-memory transport for tests |
 | `zod` | ^4 | Tool input schemas |
 
-Core is CommonJS. This package is ESM and imports core by name. It needs Node `^22 || >=24`, the same as the CLI.
+Core is CommonJS. This package is ESM and imports core by name. It needs Node `^22.22.1 || >=24`. That's the CLI's `^22 || >=24`, with the 22.x minimum raised to 22.22.1 because the dev toolchain needs it (lint-staged).
 
 **Checked against the published npm packages** (not the monorepo build), 2026-11-07:
 - Named ESM imports work: `{ OpenLint, Document }` from core, `{ Yaml }` from parsers, `{ oas }` from rulesets, and `{ bundleAndLoadRuleset }` from the bundler's `/with-loader` entry.
@@ -158,6 +158,17 @@ Mirrors the OpenLint monorepo conventions:
 3. **`lint_document`.** Output shaping (counts, grouping, limit), external-ref policy.
 4. **`list_rules` and `explain_rule`.** Format synonyms, `extensions` passthrough.
 5. **Docs and release.** README with client setup (`claude mcp add openlint -- npx openlint-mcp --ruleset ./.openlint.yaml`, and other clients), first release.
+
+### Milestone 2 notes
+
+Points raised while reviewing the plan against #13. Settle each one in PR 2.
+
+- **Custom functions stay supported.** Only inline rulesets from callers are restricted. The startup and named rulesets can use `functions`, `functionsDir` and JS rulesets. Say so in the README so the `functions` rejection isn't read as "no custom functions".
+- **Inline rulesets that extend a configured ruleset.** `extends: [my-org]` is allowed, so an inline ruleset should inherit `my-org`'s rules, including rules that use its custom functions. Check how the bundler resolves those functions when the extending ruleset is inline text with no file path. Fix it or document the limit, and add a test either way.
+- **`validate_ruleset` checks structure without running functions.** Rejecting every ruleset that declares `functions` would defeat the reason kinlane wanted this tool in v1: agents write rulesets but get them wrong. Validate YAML/JSON structure, including `functions`, without loading any code. Only `lint_document` rejects inline functions. Unverified: whether core's validation accepts a rule that names a function it hasn't loaded. If not, pass placeholder functions that are never called. JS rulesets stay out of v1, as kinlane suggested.
+- **`list_rulesets` and per-call rulesets.** P0lip suggested listing "the startup default plus anything passed per call". This plan lists configured rulesets only, because inline rulesets last for a single call. Confirm with P0lip on #13, or record why we differ.
+- **Fallback and "core" rulesets.** P0lip noted there are no real "core" rulesets. A fallback that loads `oas`, `asyncapi` and `arazzo` without being configured can still look like built-ins. Decide open question 2 with that in mind: load none and tell the agent to configure one, or present the three as the server's default configuration rather than part of OpenLint.
+- **Prefer configured names over aliases in inline `extends`.** P0lip called `spectral:*` aliases a backward-compatibility shim. The allowlist already accepts configured ruleset names, so document `extends: [oas]` as the main form. Keep `spectral:*` / `openlint:*` for existing Spectral rulesets.
 
 ## Later (v1.1+)
 
