@@ -57,7 +57,7 @@ All tools are read-only. None of them write files.
 
 - **Input:**
   - `content` (string, required)
-  - `filename` (optional, PR 3): a plain file name such as `openapi.json`, never read from disk. A `.json` name selects the JSON parser, otherwise YAML (open question 3). The document gets this name as if it sat next to the active ruleset's file (or in the working directory), so the ruleset's `overrides` match it. Default `document.yaml`.
+  - `filename` (optional, PR 3): a plain file name such as `openapi.json`, never read from disk. It can't contain directories or `#`, `?` and `%`, which would change how relative refs resolve. A `.json` name selects the JSON parser, otherwise YAML (open question 3). The document gets this name as if it sat next to the active ruleset's file (or in the working directory), so the ruleset's `overrides` match it. Default `document.yaml`.
   - `ruleset` (optional): the name of a configured ruleset (or `oas`, `asyncapi`, `arazzo`, an alias), or an inline YAML/JSON ruleset string
   - `severity` (`error|warn|info|hint`, default `hint`): the threshold
   - `limit` (1–1000, default 50)
@@ -75,7 +75,7 @@ All tools are read-only. None of them write files.
   - Diagnostics are sorted by severity, most severe first, then by code, then by path and position.
   - A group's severity is its most severe diagnostic's, and its message and location are that diagnostic's.
   - Counts always cover every result, even when `severity` or `limit` leave some out.
-  - Ranges are 0-based lines and characters. Messages refer to files relative to the document's directory, not as server paths.
+  - Ranges are 0-based lines and characters. Messages refer to files relative to the document's directory (including sibling files, as `../shared/x.yaml`), not as server paths. URLs and OpenAPI paths such as `/pets` are left as they are.
   - A ruleset the server can't use (unknown name, refused inline ruleset) is a tool error (`isError`) listing the issues, not an empty result.
   - With `--allow-external-refs`, the tool's `openWorldHint` annotation is `true`.
 
@@ -135,7 +135,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 - **Why it changed:** in PR 2, inline rulesets were bundled from an in-memory entry file. That bundled a configured ruleset again whenever an inline ruleset extended it, re-reading its files and re-running its code. `lint_document` would have done that on every call. PR 2 avoided building by hand because it meant copying the migrator's tables. The policy now limits names to package exports and loaded rulesets, so nothing needs copying.
 - **Results:**
   - An inline `extends: [my-org]` keeps `my-org`'s custom functions working, and its files aren't read again.
-  - Inline rulesets read no files, fetch nothing, and run only built-in functions.
+  - Inline rulesets read no files and fetch nothing themselves, and the only functions they name are built-in ones. Rules they inherit from a configured ruleset run that ruleset's custom functions, which are trusted like the rest of the server's configuration.
   - `overrides` of an extended ruleset don't apply. Core only applies `overrides` on the top-level ruleset, and that was already true with the bundler.
 
 ## Safety
@@ -143,7 +143,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 - **No document reads from disk or network in v1.** Input is `content` only.
 - **External `$ref`s:** core's default resolver follows `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag.
   - *Confirmed in PR 3:* `lint_document` passes `new Resolver()` from `@openlint/openlint-ref-resolver`, which has no `file` or `http` handlers, through `OpenLint`'s `resolver` option. External refs become `invalid-ref` errors ("No resolver defined for scheme …"), and refs inside the document still resolve. Tests check that no request is made and no file is read, with positive controls for both.
-  - With the flag, it uses `createHttpAndFileResolver()`, the same resolver as core's default. Relative refs then resolve against the document's directory: the active ruleset's directory, or the working directory.
+  - With the flag, it uses `createHttpAndFileResolver()`, the same resolver as core's default. Relative refs then resolve against the document's directory: the active ruleset's directory, or the working directory. Each HTTP request has a 10-second timeout and is cancelled when the MCP call is cancelled.
   - `$ref`s inside rule options (for example a `schema` function's `functionOptions`) aren't fetched either way; a test checks this.
 - **No custom JS from callers.**
   - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.

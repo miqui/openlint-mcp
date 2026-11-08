@@ -12,6 +12,7 @@ import {
   RULESET_ALIASES,
   customFunctionIssues,
   extendsIssues,
+  extendsRefs,
   isObject,
   isPackageRulesetName,
   jsonPathExpressionIssues,
@@ -182,8 +183,12 @@ export class RulesetService {
       ...notAllowedInline,
     ];
     if (errors.length > 0) return { valid: false, errors, warnings };
-    // Building it would mean running custom functions or reading files, URLs or packages.
-    if (warnings.length > 0) return { valid: true, errors, warnings };
+    // Building it would mean running custom functions or reading files, URLs or packages, so check
+    // what can be checked without building it.
+    if (warnings.length > 0) {
+      const unknownRules = this.unknownRuleOverrides(definition);
+      return { valid: unknownRules.length === 0, errors: unknownRules, warnings };
+    }
 
     const loaded = this.build(definition);
     return loaded.ok
@@ -210,6 +215,26 @@ export class RulesetService {
     const packageName = isPackageRulesetName(name) ? name : RULESET_ALIASES.get(name);
     return packageName === undefined ? undefined : PACKAGE_RULESETS[packageName];
   };
+
+  /**
+   * Rules that only set a severity must exist in an extended ruleset; core rejects them otherwise.
+   * For rulesets that can't be built. Checks the top-level `rules`, and only when every top-level
+   * `extends` entry is a loaded ruleset, since others may define the rule.
+   */
+  private unknownRuleOverrides(definition: Json): Issue[] {
+    const known = new Set<string>();
+    for (const ref of extendsRefs(definition)) {
+      if (ref.path[0] === 'overrides') continue;
+      const ruleset = typeof ref.name === 'string' ? this.rulesetByName(ref.name) : undefined;
+      if (ruleset === undefined) return [];
+      for (const rule of Object.keys(ruleset.rules)) known.add(rule);
+    }
+    const { rules } = definition;
+    if (!isObject(rules)) return [];
+    return Object.entries(rules)
+      .filter(([name, rule]) => !isObject(rule) && !known.has(name))
+      .map(([name]) => ({ message: `Cannot extend non-existing rule: "${name}"`, path: ['rules', name] }));
+  }
 
   /** A configured or package ruleset (or alias) by name, as already loaded. */
   private rulesetByName(name: string): Ruleset | undefined {
