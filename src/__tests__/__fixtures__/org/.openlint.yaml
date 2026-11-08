@@ -1,0 +1,10 @@
+# A server-configured ruleset with a custom function.
+formats: [oas3]
+functions: [hasTitle]
+rules:
+  org-title:
+    description: info.title is required.
+    given: $.info
+    severity: error
+    then:
+      function: hasTitle

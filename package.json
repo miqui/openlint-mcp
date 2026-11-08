@@ -57,7 +57,14 @@
     ]
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.32.2"
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@openlint/openlint-core": "0.1.1",
+    "@openlint/openlint-functions": "0.1.0",
+    "@openlint/openlint-parsers": "1.0.0",
+    "@openlint/openlint-ruleset-bundler": "0.1.1",
+    "@openlint/openlint-rulesets": "0.1.0",
+    "@openlint/openlint-runtime": "0.0.1",
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",

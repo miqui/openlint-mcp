@@ -1,0 +1,6 @@
+rules:
+  bad-severity:
+    given: $
+    severity: loud
+    then:
+      function: truthy
