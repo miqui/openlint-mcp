@@ -1,6 +1,7 @@
 // Smoke test for the built server: starts dist/index.js over stdio with a real MCP client, the way
 // MCP clients launch it, and checks the handshake and a tool call that bundles an inline ruleset.
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -16,7 +17,7 @@ const client = new Client({ name: 'smoke', version: '0.0.0' });
 await client.connect(
   new StdioClientTransport({
     command: process.execPath,
-    args: [new URL('../dist/index.js', import.meta.url).pathname],
+    args: [fileURLToPath(new URL('../dist/index.js', import.meta.url))],
   }),
 );
 
