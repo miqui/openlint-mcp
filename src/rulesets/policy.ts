@@ -182,6 +182,61 @@ export function unknownFormatIssues(definition: Json): Issue[] {
     }));
 }
 
+/**
+ * JSONPath strings: each rule's `given` and `then.field`, and alias definitions (plain lists and
+ * scoped `targets[].given`).
+ */
+export function jsonPathRefs(definition: Json): Ref[] {
+  const refs: Ref[] = [];
+  const addAll = (value: unknown, path: IssuePath): void => {
+    if (Array.isArray(value)) value.forEach((name: unknown, index) => refs.push({ name, path: [...path, index] }));
+    else if (value !== undefined) refs.push({ name: value, path });
+  };
+  for (const scope of scopes(definition)) {
+    const { rules, aliases } = scope.definition;
+    if (isObject(rules)) {
+      for (const [ruleName, rule] of Object.entries(rules)) {
+        if (!isObject(rule)) continue;
+        const base = [...scope.path, 'rules', ruleName];
+        addAll(rule['given'], [...base, 'given']);
+        const { then } = rule;
+        const thens: [unknown, IssuePath][] = Array.isArray(then)
+          ? then.map((entry: unknown, index): [unknown, IssuePath] => [entry, [...base, 'then', index]])
+          : [[then, [...base, 'then']]];
+        for (const [entry, path] of thens) {
+          if (isObject(entry) && 'field' in entry) refs.push({ name: entry['field'], path: [...path, 'field'] });
+        }
+      }
+    }
+    if (isObject(aliases)) {
+      for (const [aliasName, alias] of Object.entries(aliases)) {
+        const base = [...scope.path, 'aliases', aliasName];
+        if (Array.isArray(alias)) addAll(alias, base);
+        else if (isObject(alias) && Array.isArray(alias['targets'])) {
+          alias['targets'].forEach((target: unknown, index) => {
+            if (isObject(target)) addAll(target['given'], [...base, 'targets', index, 'given']);
+          });
+        }
+      }
+    }
+  }
+  return refs;
+}
+
+/**
+ * JSONPath filter and script expressions (anything with "("), which inline rulesets can't use.
+ * Evaluating expressions is up to the JSONPath engines, so untrusted rulesets are kept to plain paths.
+ */
+export function jsonPathExpressionIssues(definition: Json): Issue[] {
+  return jsonPathRefs(definition)
+    .filter(ref => typeof ref.name === 'string' && ref.name.includes('('))
+    .map(ref => ({
+      message:
+        'Inline rulesets can\'t use JSONPath filter or script expressions (anything with "("). Rulesets that need them must be configured on the server with --ruleset.',
+      path: ref.path,
+    }));
+}
+
 export function declaredFunctions(definition: Json): Set<string> {
   const { functions } = definition;
   return new Set(Array.isArray(functions) ? functions.filter((name): name is string => typeof name === 'string') : []);

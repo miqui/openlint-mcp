@@ -257,6 +257,32 @@ describe('inline rulesets', () => {
       },
     );
 
+    it('JSONPath filter and script expressions, wherever paths appear', async () => {
+      const message = /can't use JSONPath filter or script expressions/;
+      const then = 'then: { function: truthy }';
+      await rejects(`rules:\n  r: { given: "$..[?(@.type)]", ${then} }\n`, ['rules', 'r', 'given'], message);
+      await rejects(
+        `rules:\n  r: { given: ["$.info", "$..[(@.length-1)]"], ${then} }\n`,
+        ['rules', 'r', 'given', 1],
+        message,
+      );
+      await rejects(
+        'rules:\n  r: { given: $, then: [{ function: truthy }, { field: "$..[?(@)]", function: truthy }] }\n',
+        ['rules', 'r', 'then', 1, 'field'],
+        message,
+      );
+      await rejects(
+        `aliases:\n  A: ["$..[?(@.x)]"]\nrules:\n  r: { given: "#A", ${then} }\n`,
+        ['aliases', 'A', 0],
+        message,
+      );
+      await rejects(
+        `aliases:\n  A:\n    targets:\n      - formats: [oas3]\n        given: ["$..[?(@.x)]"]\nrules:\n  r: { given: "#A", ${then} }\n`,
+        ['aliases', 'A', 'targets', 0, 'given', 0],
+        message,
+      );
+    });
+
     it('non-string formats', async () => {
       await rejects(
         'formats: [42]\nrules:\n  r: { given: $, then: { function: truthy } }\n',
@@ -301,6 +327,16 @@ describe('validate', () => {
       valid: true,
       errors: [],
       warnings: [],
+    });
+  });
+
+  it('accepts plain JSONPath, and filter expressions with a warning for inline use', async () => {
+    const plain =
+      'aliases:\n  A: ["$.paths[*][*]"]\nrules:\n  r: { given: ["$.info", "$..description", "#A"], then: { field: name, function: truthy } }\n';
+    expect(fallback.validate(plain)).toEqual({ valid: true, errors: [], warnings: [] });
+    expect(fallback.validate('rules:\n  r: { given: "$..[?(@.type)]", then: { function: truthy } }\n')).toMatchObject({
+      valid: true,
+      warnings: [{ path: ['rules', 'r', 'given'] }],
     });
   });
 

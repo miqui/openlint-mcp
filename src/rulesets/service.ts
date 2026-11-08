@@ -14,6 +14,7 @@ import {
   extendsIssues,
   isObject,
   isPackageRulesetName,
+  jsonPathExpressionIssues,
   overridesIssues,
   toRulesetDefinition,
   unknownFormatIssues,
@@ -146,6 +147,7 @@ export class RulesetService {
     const issues = [
       ...customFunctionIssues(definition),
       ...overridesIssues(definition),
+      ...jsonPathExpressionIssues(definition),
       ...unknownAliases,
       ...notAllowedInline,
       ...unknownFunctionIssues(definition),
@@ -173,7 +175,12 @@ export class RulesetService {
       ...unknownFunctionIssues(definition),
       ...unknownFormatIssues(definition),
     ];
-    const warnings = [...customFunctionIssues(definition), ...overridesIssues(definition), ...notAllowedInline];
+    const warnings = [
+      ...customFunctionIssues(definition),
+      ...overridesIssues(definition),
+      ...jsonPathExpressionIssues(definition),
+      ...notAllowedInline,
+    ];
     if (errors.length > 0) return { valid: false, errors, warnings };
     // Building it would mean running custom functions or reading files, URLs or packages.
     if (warnings.length > 0) return { valid: true, errors, warnings };
