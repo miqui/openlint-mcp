@@ -2,7 +2,7 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { ConfigError, parseConfig } from '../config.js';
+import { ConfigError, USAGE, parseConfig } from '../config.js';
 
 const cwd = '/work';
 
@@ -81,6 +81,15 @@ describe('parseConfig', () => {
     expect(parseConfig(['--help', '--version'], {}, cwd).show).toBe('help');
     expect(parseConfig(['-h'], {}, cwd).show).toBe('help');
     expect(parseConfig([], {}, cwd)).not.toHaveProperty('show');
+  });
+
+  it('shows help and the version even when the rulesets are invalid', () => {
+    expect(parseConfig(['--help', '-r', 'a.yaml', '-r', 'b.yaml'], {}, cwd).show).toBe('help');
+    expect(parseConfig(['-r', 'oas=x.yaml', '--version'], {}, cwd).show).toBe('version');
+  });
+
+  it('explains the default ruleset order in the help', () => {
+    expect(USAGE).toMatch(/unnamed --ruleset, else OPENLINT_RULESET, else the first named\s+ruleset/);
   });
 
   it('rejects unknown options', () => {

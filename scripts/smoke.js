@@ -10,7 +10,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const installed = process.env['OPENLINT_MCP_SERVER'];
+// An empty value counts as unset.
+const installed = process.env['OPENLINT_MCP_SERVER'] || undefined;
 const command = installed ?? process.execPath;
 const baseArgs = installed === undefined ? [fileURLToPath(new URL('../dist/index.js', import.meta.url))] : [];
 const document = readFileSync(new URL('../src/__tests__/__fixtures__/documents/oas3.0.yaml', import.meta.url), 'utf8');
