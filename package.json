@@ -27,18 +27,19 @@
     "dist"
   ],
   "engines": {
-    "node": "^22 || >=24"
+    "node": "^22.22.1 || >=24"
   },
   "scripts": {
     "build": "npm run tsc -- -p tsconfig.build.json",
-    "clean": "rm -rf dist .cache coverage",
+    "clean": "node -e \"for (const d of ['dist', '.cache', 'coverage']) require('node:fs').rmSync(d, { recursive: true, force: true })\"",
     "lint": "npm run lint.prettier && npm run lint.eslint && npm run lint.tsc",
-    "lint.fix": "prettier --write . && eslint --fix .",
     "lint.eslint": "eslint --cache --cache-location .cache/.eslintcache .",
+    "lint.fix": "prettier --write . && eslint --fix .",
     "lint.prettier": "prettier --check .",
     "lint.tsc": "npm run tsc -- -p tsconfig.json --noEmit",
+    "prepack": "npm run build",
+    "prepare": "node .husky/install.mjs",
     "test": "vitest run",
-    "prepare": "husky",
     "tsc": "node ./node_modules/typescript7/bin/tsc"
   },
   "release": {
