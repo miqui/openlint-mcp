@@ -61,7 +61,7 @@ Rulesets that an AI tool passes inline in a tool call are untrusted, so they are
 
 `lint_document` takes the document as text in `content`. Optional inputs:
 
-- **`filename`**, such as `openapi.json`. It is never read from disk. A `.json` name selects the JSON parser (otherwise YAML), and the ruleset's `overrides` match it as if the document sat next to the ruleset file.
+- **`filename`**, such as `openapi.json`, without directories or `#`, `?` and `%`. It is never read from disk. A `.json` name selects the JSON parser (otherwise YAML), and the ruleset's `overrides` match it as if the document sat next to the ruleset file.
 - **`ruleset`**: a name from `list_rulesets` (or `oas`, `asyncapi`, `arazzo`), or an inline YAML/JSON ruleset.
 - **`severity`** (`error`, `warn`, `info` or `hint`; default `hint`): leaves out less severe diagnostics.
 - **`limit`** (default 50), and **`groupBy`** (`code`, the default, or `none`).
@@ -73,7 +73,7 @@ It returns:
 - the `diagnostics`, most severe first, grouped by rule code unless `groupBy` is `none`
 - `truncated`, and any `notes`
 
-**External `$ref`s** (to other files or URLs) aren't followed by default. They're reported as `invalid-ref`, with a note. `--allow-external-refs` turns them on.
+**External `$ref`s** (to other files or URLs) aren't followed by default. They're reported as `invalid-ref`, with a note. `--allow-external-refs` turns them on; each HTTP request then has a 10-second timeout.
 
 > **Warning:** with `--allow-external-refs`, a document from your AI tool can make the server read any local file it has access to, and fetch any URL. Relative refs resolve against the ruleset file's directory (or the working directory). Only use it when you trust the documents.
 
