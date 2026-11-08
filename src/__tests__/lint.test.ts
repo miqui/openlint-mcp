@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { lintDocument, type FlatDiagnostic, type GroupedDiagnostic } from '../lint.js';
+import { lintDocument, relativeTo, type FlatDiagnostic, type GroupedDiagnostic } from '../lint.js';
 import { RulesetService } from '../rulesets/service.js';
 import { rulesetOf } from './helpers.js';
 
@@ -108,6 +108,23 @@ describe('output shaping', () => {
   });
 });
 
+describe('relativeTo', () => {
+  it('rewrites paths under the directory, but not URLs or other paths', () => {
+    const relative = relativeTo(path.join(path.sep, 'srv', 'api'));
+    const file = path.join(path.sep, 'srv', 'api', 'pets.yaml');
+    expect(relative(`in ref ${file}`)).toBe('in ref pets.yaml');
+    expect(relative(`'${file}'`)).toBe("'pets.yaml'");
+    expect(relative(file)).toBe('pets.yaml');
+    expect(relative('http://host/srv/api/pets.yaml')).toBe('http://host/srv/api/pets.yaml');
+    expect(relative(path.join(path.sep, 'srv', 'apis', 'x.yaml'))).toBe(path.join(path.sep, 'srv', 'apis', 'x.yaml'));
+  });
+
+  it('leaves everything alone at a filesystem root', () => {
+    const relative = relativeTo(path.parse(process.cwd()).root);
+    expect(relative('http://host//x.yaml and /etc/x.yaml')).toBe('http://host//x.yaml and /etc/x.yaml');
+  });
+});
+
 describe('document name', () => {
   const content = 'openapi: 3.0.3\ninfo:\n  title: t\n  version: "1"\npaths: {}\n';
   let service: RulesetService;
@@ -200,6 +217,14 @@ describe('external $refs', () => {
     const invalidRefs = (result.diagnostics as FlatDiagnostic[]).filter(d => d.code === 'invalid-ref');
     expect(invalidRefs.map(d => d.path.at(-2))).toEqual(['Local']);
     expect(result.notes).toEqual([]);
+  });
+
+  it.each(['/', '/api'])('keep URLs intact in messages when the working directory is %s', async cwd => {
+    vi.spyOn(process, 'cwd').mockReturnValue(cwd);
+    const url = `${base}/api/pet.yaml`;
+    const result = await lintDocument({ content: documentWithRefs(url), ruleset: defaultRuleset, groupBy: 'none' });
+    const messages = (result.diagnostics as FlatDiagnostic[]).filter(d => d.code === 'invalid-ref').map(d => d.message);
+    expect(messages.some(message => message.includes(url))).toBe(true);
   });
 
   it.each([false, true])("aren't fetched from rule options (allowExternalRefs: %s)", async allowExternalRefs => {

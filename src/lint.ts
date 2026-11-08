@@ -106,8 +106,7 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
   openlint.setRuleset(ruleset);
   const results = await openlint.run(document);
 
-  // Messages and sources are reported relative to the document's directory, not as server paths.
-  const relative = (text: string): string => text.split(`${baseDir}${path.sep}`).join('');
+  const relative = relativeTo(baseDir);
   const flat = results.map(result => toFlat(result, source, relative)).sort(compare);
 
   const counts: Record<SeverityName, number> = { error: 0, warn: 0, info: 0, hint: 0 };
@@ -127,6 +126,18 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
     truncated: entries.length > limit,
     notes,
   };
+}
+
+/**
+ * Rewrites absolute paths under `baseDir` relative to it, so messages don't carry server paths. Only
+ * paths that start a word are rewritten, so URLs with the same path segments stay intact; at a
+ * filesystem root nothing is rewritten.
+ */
+export function relativeTo(baseDir: string): (text: string) => string {
+  if (path.dirname(baseDir) === baseDir) return text => text;
+  const prefix = `${baseDir}${path.sep}`.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`(^|[\\s'"(])${prefix}`, 'g');
+  return text => text.replace(pattern, '$1');
 }
 
 function toFlat(
@@ -149,12 +160,15 @@ function toFlat(
   };
 }
 
+/** Code-point order, the same on every machine (unlike `localeCompare`). */
+const byCodePoint = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
 /** Most severe first, then by code, then by path and position, so the order is stable. */
 function compare(a: FlatDiagnostic, b: FlatDiagnostic): number {
   return (
     SEVERITY_NAMES.indexOf(a.severity) - SEVERITY_NAMES.indexOf(b.severity) ||
-    a.code.localeCompare(b.code) ||
-    a.path.join('/').localeCompare(b.path.join('/')) ||
+    byCodePoint(a.code, b.code) ||
+    byCodePoint(a.path.join('/'), b.path.join('/')) ||
     a.range.start.line - b.range.start.line ||
     a.range.start.character - b.range.start.character
   );
