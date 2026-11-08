@@ -35,6 +35,7 @@ All are already on npm:
 | `@openlint/openlint-rulesets` | 0.1.0 | `oas`, `asyncapi`, `arazzo` ruleset objects |
 | `@openlint/openlint-ruleset-bundler` | 0.1.1 | `bundleAndLoadRuleset` (`/with-loader`) for ruleset files (YAML/JSON/JS) and inline rulesets (see Ruleset sources). It runs the migrator, which resolves `spectral:oas`-style aliases, so the migrator isn't a direct dependency. |
 | `@openlint/openlint-functions` | 0.1.0 | Names of the built-in functions, for checking `then.function` |
+| `@openlint/openlint-formats` | 0.1.0 | Format exports, the source of truth for `formats` names in inline rulesets |
 | `@openlint/openlint-runtime` | 0.0.1 | `fetch` for the loader's `io` |
 | `@openlint/openlint-ref-resolver` | 0.1.0 | Building a resolver with external refs turned off (see Safety) |
 | `@modelcontextprotocol/sdk` | ^1.32 | Server, stdio transport, in-memory transport for tests |
@@ -136,6 +137,13 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
   - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.
   - Every inline `then.function` must name a built-in function from `@openlint/openlint-functions`.
   - Custom functions are only allowed in rulesets configured at startup.
+- **Inline `formats` names must be exports of `@openlint/openlint-formats`.**
+  - **Where:** the check covers every place the migrator reads `formats`: the ruleset, `overrides`, rules, and `aliases` targets.
+  - **Matching:** names are matched against the package's format exports (the exports with a `displayName`), ignoring case, `.`, `_` and `-`. So `oas3.1`, `oas3_1` and `OAS3.1` all mean `oas3_1`, and `json-schema-draft7` means `jsonSchemaDraft7`.
+  - **Rewrite:** before bundling, each name is replaced by its export name.
+  - **Why not the migrator's table:** it has drifted from the package. `asyncapi3` and `arazzo1` are listed but fail to load, and `oas3.2` isn't listed but works.
+  - **Scope:** configured rulesets are trusted and still go through the migrator unchanged.
+- **The general rule:** every name in an inline ruleset that the migrator resolves must come from a fixed set: built-in function names, format exports, ruleset aliases and configured rulesets. If the migrator starts resolving other fields, extend the check.
 - **Inline `extends` is limited to an allowlist.** Each entry may only be one of:
   - the name of a configured ruleset
   - `oas`, `asyncapi` or `arazzo`
@@ -174,7 +182,7 @@ Mirrors the OpenLint monorepo conventions:
   - an inline ruleset that declares `functions` (rejected)
   - an inline ruleset whose `extends` is a URL, a relative or absolute path, or a package name (rejected)
   - an external `$ref` when external resolution is off
-- Smoke test: `npx @modelcontextprotocol/inspector` against the built binary
+- Smoke test: `npm run smoke` (`scripts/smoke.js`) starts `dist/index.js` over stdio with the SDK's stdio client. It checks the handshake, `list_rulesets`, and a `validate_ruleset` call that bundles an inline ruleset from `dist`. CI runs it on Node 22 and 24. For manual checks, use `npx @modelcontextprotocol/inspector` against the built binary.
 
 ## Milestones (one PR each)
 
@@ -182,7 +190,7 @@ Mirrors the OpenLint monorepo conventions:
 2. **Ruleset service.** Startup and fallback loading, inline parsing (the spike), the `extends` allowlist and the `functions` rejection, `validate_ruleset`, `list_rulesets`.
 3. **`lint_document`.** Output shaping (counts, grouping, limit), external-ref policy.
 4. **`list_rules` and `explain_rule`.** Format synonyms, `extensions` passthrough.
-5. **Docs and release.** README with client setup (`claude mcp add openlint -- npx openlint-mcp --ruleset ./.openlint.yaml`, and other clients), first release.
+5. **Docs and release.** First npm release. Setup steps for Claude Code, Claude Desktop, Codex and OpenCode were added to the README in PR 2, and were checked against each tool's docs and, for Claude Code and Codex, against the files their `mcp add` commands write. PR 5 switches the examples from `node /abs/path/to/openlint-mcp/dist/index.js` to `npx -y @openlint/openlint-mcp`, keeps ruleset paths absolute, and updates the tools table.
 
 ### Milestone 2 notes
 
@@ -209,6 +217,8 @@ Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
 ## Upstream follow-ups (small PRs to `openlint/openlint`)
 
+- **Security report, to send privately** to the OpenLint maintainers (for example through a GitHub security advisory), about how the ruleset migrator handles `formats` names. Details are withheld here until a fix ships. Then add them here, and this repo may be able to drop its own format check.
+- **Migrator format table drift:** `asyncapi3` and `arazzo1` are listed but fail to load, and `oas3.2` isn't listed but works. Resolving format names against the exports of `@openlint/openlint-formats` would fix it.
 - **Optional:** add an `openlint:oas` alias in `packages/ruleset-migrator/src/transformers/extends.ts` for symmetry with `spectral:oas`. The OpenAPI alias is `openlint:openapi`, so nothing is missing, but `openlint:oas` is an easy guess. Today it is resolved as a file path and fails.
 - **JS rulesets crashing in the CLI:** `.mjs` rulesets that import `oas` crash on OAS 3.0 documents with `oasDocumentSchema … a is not a function`. *PR 2:* this doesn't reproduce through the published bundler. `bundleAndLoadRuleset` loads such a ruleset from outside the package directory and lints OAS 3.0 correctly, so the bug is likely in the CLI. Reproduce it with the CLI before filing.
 - **Possible core limitation:** core can't extend a ruleset that uses aliases, such as `oas`, inside `overrides`. It fails with `Alias "ArrayProperties" does not exist`. Check whether that's intended (Spectral may behave the same) before filing.
