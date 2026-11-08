@@ -33,12 +33,14 @@ The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd
 
 ## Configure rulesets
 
-| Option                       | Meaning                                                   |
-| ---------------------------- | --------------------------------------------------------- |
-| `--ruleset <path>` (or `-r`) | The default ruleset: a YAML, JSON or JS ruleset file      |
-| `--ruleset <name>=<path>`    | An extra named ruleset. Repeat the option to add more.    |
-| `OPENLINT_RULESET=<path>`    | The default ruleset, when there is no unnamed `--ruleset` |
+| Option                       | Meaning                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `--ruleset <path>` (or `-r`) | The default ruleset: a YAML, JSON or JS ruleset file                                                      |
+| `--ruleset <name>=<path>`    | An extra named ruleset. Repeat the option to add more. `oas`, `asyncapi` and `arazzo` are reserved names. |
+| `OPENLINT_RULESET=<path>`    | The default ruleset, when there is no unnamed `--ruleset`                                                 |
 
+- **Which one is the default:** an unnamed `--ruleset`, then `OPENLINT_RULESET`, then the first named ruleset.
+- **Filenames that contain `=`:** `--ruleset team=prod.yaml` means a ruleset named `team`, loaded from `prod.yaml`. To load a file called `team=prod.yaml`, start the path with `./` or `/`, as in `--ruleset ./team=prod.yaml`.
 - **No ruleset configured:** the server uses the `oas`, `asyncapi` and `arazzo` rulesets from [`@openlint/openlint-rulesets`](https://www.npmjs.com/package/@openlint/openlint-rulesets) (recommended rules).
 - **Use absolute paths.** AI tools usually start MCP servers from a different working directory than your project, so relative paths may not resolve.
 - **Custom functions are supported** in configured rulesets (`functions`, `functionsDir`, and JS rulesets).
@@ -47,7 +49,7 @@ The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd
 Rulesets that an AI tool passes inline in a tool call are untrusted, so they are restricted:
 
 - no custom functions
-- `extends` only names a configured ruleset, `oas`, `asyncapi`, `arazzo`, or a `spectral:`/`openlint:` alias
+- `extends` only names a configured ruleset, `oas`, `asyncapi`, `arazzo`, or one of the aliases `spectral:oas`, `spectral:asyncapi`, `spectral:arazzo`, `openlint:openapi`, `openlint:asyncapi` and `openlint:arazzo`
 - `formats` only names formats exported by `@openlint/openlint-formats`
 
 `validate_ruleset` explains what was refused.
@@ -84,6 +86,8 @@ A project-scoped `.mcp.json` looks like this:
   }
 }
 ```
+
+The paths in a committed `.mcp.json` must work on every teammate's machine. If your checkouts live in different places, have each person run `claude mcp add` with the default `local` scope instead.
 
 To set the ruleset through the environment instead, use `-e OPENLINT_RULESET=/abs/path/to/.openlint.yaml` before `--`.
 
@@ -153,7 +157,9 @@ Add the server with the `opencode` CLI. Without `--global`, it goes into the pro
 opencode mcp add openlint -- node /abs/path/to/openlint-mcp/dist/index.js --ruleset /abs/path/to/.openlint.yaml
 ```
 
-Or edit `opencode.json` (or `opencode.jsonc`) in the project root, or `~/.config/opencode/opencode.json` for all projects:
+In some older versions, `opencode mcp add` doesn't take a name and command, and asks for them instead. Enter `openlint` as the name, choose a local server, and give the same command.
+
+Or edit `opencode.json` (or `opencode.jsonc`) in the project root, or `~/.config/opencode/opencode.json` for all projects. The format in OpenCode's current docs (V2) puts servers under `mcp.servers`:
 
 ```jsonc
 {
@@ -171,7 +177,22 @@ Or edit `opencode.json` (or `opencode.jsonc`) in the project root, or `~/.config
 }
 ```
 
-This is the configuration format in OpenCode's current docs, where servers sit under `mcp.servers`. If your version expects a different shape, `opencode mcp add` writes the right one for it.
+Older versions (V1) put servers directly under `mcp`, and use `enabled`:
+
+```jsonc
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "openlint": {
+      "type": "local",
+      "command": ["node", "/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"],
+      "enabled": true,
+    },
+  },
+}
+```
+
+If you're not sure which format your version uses, `opencode mcp add` writes the right one.
 
 **Check it's connected:** run `opencode mcp list`, or `/mcps` inside OpenCode.
 

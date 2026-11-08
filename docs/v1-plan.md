@@ -107,7 +107,7 @@ All tools are read-only. None of them write files.
 ## Ruleset sources
 
 1. **Startup default:** `openlint-mcp --ruleset ./.openlint.yaml`, or the `OPENLINT_RULESET` env var. The flag wins when both are set. It is loaded with `bundleAndLoadRuleset`, so YAML, JSON and JS files all work, including custom functions. This is set by whoever runs the server, so it is trusted.
-2. **Named extras** (optional): `--ruleset name=path`, which can be repeated. These show up in `list_rulesets`. Without an unnamed `--ruleset`, the first named one is the default. `oas`, `asyncapi` and `arazzo` are reserved names.
+2. **Named extras** (optional): `--ruleset name=path`, which can be repeated. These show up in `list_rulesets`. Without an unnamed `--ruleset` or a non-empty `OPENLINT_RULESET`, the first named one is the default. `oas`, `asyncapi` and `arazzo` are reserved names.
 3. **Fallback** when nothing is configured (open question 2, decided): the `oas`, `asyncapi` and `arazzo` exports of `@openlint/openlint-rulesets`, recommended rules only.
    - `list_rulesets` labels them by package, not as "core" rulesets, and marks all three as defaults.
    - The default ruleset extends all three. Each rule only runs on documents of its own formats.
@@ -126,7 +126,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
   - Building a `Ruleset` by hand would mean copying the migrator's alias, format and function tables.
 - **Results:**
   - An inline `extends: [my-org]` keeps `my-org`'s custom functions working.
-  - Nothing beyond the entry file was read for any input the policy allows.
+  - For any input the policy allows, the only files read are the entry file and, when an inline ruleset extends a configured ruleset, that ruleset's own (trusted) files. `validate_ruleset` doesn't load configured rulesets again: it checks against the copies loaded at startup.
   - No upstream helper is needed.
 
 ## Safety
