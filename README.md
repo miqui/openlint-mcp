@@ -4,7 +4,7 @@ An [MCP](https://modelcontextprotocol.io) server for [OpenLint](https://github.c
 
 The server runs locally over stdio and builds only on the published `@openlint/*` npm packages. Design and milestones: [`docs/v1-plan.md`](docs/v1-plan.md).
 
-> **Status: early development.** The package isn't on npm yet, so install it from source (below). Once it's published, `node /abs/path/to/openlint-mcp/dist/index.js` in the examples becomes `npx -y @openlint/openlint-mcp`.
+> **Not on npm yet.** Releases are published on GitHub until the project moves to the `openlint` organization; it will then be published to npm as `@openlint/openlint-mcp`.
 
 ## Tools
 
@@ -18,9 +18,26 @@ All tools are read-only.
 | `list_rules`       | Lists a ruleset's rules, optionally for one format (such as `oas3.1` or `swagger`)                                   | Available |
 | `explain_rule`     | Explains one rule, including `extensions` such as fixing guidance                                                    | Available |
 
-## Install from source
+## Install
 
 Requires Node.js `^22.22.1 || >=24`.
+
+### From a release (recommended)
+
+Each [GitHub release](https://github.com/miqui/openlint-mcp/releases) includes the built package as `openlint-mcp.tgz`. Install it globally:
+
+```sh
+curl -LO https://github.com/miqui/openlint-mcp/releases/latest/download/openlint-mcp.tgz
+npm install -g ./openlint-mcp.tgz
+openlint-mcp --version
+```
+
+- This installs the `openlint-mcp` command for your current Node.js. With asdf, run `asdf reshim nodejs` afterwards.
+- For a specific version, download `releases/download/v<version>/openlint-mcp.tgz` instead of `releases/latest/download/…`. To update, install a newer release the same way.
+- npm 12 may warn that it skipped install scripts for `@openlint/openlint-mcp` and `fsevents`. The package doesn't need them.
+- **Why not `npx github:miqui/openlint-mcp`?** npm 12 refuses git and URL installs by default (its `allow-git` and `allow-remote` settings), and a git install has to build the package first. A downloaded tarball installs anywhere.
+
+### From source
 
 ```sh
 git clone https://github.com/miqui/openlint-mcp.git
@@ -30,7 +47,7 @@ npm run build
 npm run smoke   # optional: starts the built server over stdio and calls its tools
 ```
 
-The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd` in the clone to get the absolute path.
+Then use `node /abs/path/to/openlint-mcp/dist/index.js` wherever the examples below say `openlint-mcp`. Run `pwd` in the clone to get the absolute path.
 
 ## Configure rulesets
 
@@ -100,14 +117,14 @@ rules:
 
 ## Use with AI tools
 
-In every example, replace `/abs/path/to/openlint-mcp` with the absolute path of your clone, and `/abs/path/to/.openlint.yaml` with your ruleset. The `--ruleset …` part is optional. Without it, the server uses the default rulesets above.
+The examples run the `openlint-mcp` command from a release install. Replace `/abs/path/to/.openlint.yaml` with your ruleset. The `--ruleset …` part is optional; without it, the server uses the default rulesets above. If a tool can't find `openlint-mcp` (desktop apps often don't see your shell's `PATH`), use the absolute paths shown for Claude Desktop.
 
 ### Claude Code
 
 Add the server with the `claude` CLI. Everything after `--` is the server's own command line:
 
 ```sh
-claude mcp add openlint -- node /abs/path/to/openlint-mcp/dist/index.js --ruleset /abs/path/to/.openlint.yaml
+claude mcp add openlint -- openlint-mcp --ruleset /abs/path/to/.openlint.yaml
 ```
 
 Choose where the setting is stored with `--scope`:
@@ -123,8 +140,8 @@ A project-scoped `.mcp.json` looks like this:
   "mcpServers": {
     "openlint": {
       "type": "stdio",
-      "command": "node",
-      "args": ["/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"],
+      "command": "openlint-mcp",
+      "args": ["--ruleset", "/abs/path/to/.openlint.yaml"],
       "env": {}
     }
   }
@@ -146,21 +163,28 @@ Open **Settings → Developer → Edit Config**. That opens `claude_desktop_conf
 - macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 
-Add the server:
+Desktop apps often don't see the `PATH` from your shell, especially with version managers like nvm or asdf, so give absolute paths to Node.js and to the server. Print them with:
+
+```sh
+node -p process.execPath                                    # Node.js
+echo "$(npm root -g)/@openlint/openlint-mcp/dist/index.js"  # the server, from a release install
+```
+
+Then add the server:
 
 ```json
 {
   "mcpServers": {
     "openlint": {
       "command": "/abs/path/to/node",
-      "args": ["/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"]
+      "args": ["/abs/path/to/@openlint/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"]
     }
   }
 }
 ```
 
-- **Use the absolute path to `node`** (run `which node`, or `where node` on Windows). Desktop apps often don't see the `PATH` from your shell, especially with version managers like nvm or asdf.
-- **On Windows,** escape backslashes in JSON paths: `"C:\\Users\\you\\openlint-mcp\\dist\\index.js"`.
+- **From source,** the server is `/abs/path/to/openlint-mcp/dist/index.js` in your clone.
+- **On Windows,** escape backslashes in JSON paths: `"C:\\Users\\you\\AppData\\Roaming\\npm\\node_modules\\@openlint\\openlint-mcp\\dist\\index.js"`.
 - **Restart:** quit Claude Desktop completely and start it again.
 - **If it doesn't connect,** check the logs. On macOS they're at `~/Library/Logs/Claude/mcp-server-openlint.log`.
 
@@ -171,22 +195,22 @@ Docs: [Connect to local MCP servers](https://modelcontextprotocol.io/docs/develo
 Add the server with the `codex` CLI. The CLI, the IDE extension and the ChatGPT desktop app share this configuration:
 
 ```sh
-codex mcp add openlint -- node /abs/path/to/openlint-mcp/dist/index.js --ruleset /abs/path/to/.openlint.yaml
+codex mcp add openlint -- openlint-mcp --ruleset /abs/path/to/.openlint.yaml
 ```
 
 This writes to `~/.codex/config.toml`. You can also edit that file directly:
 
 ```toml
 [mcp_servers.openlint]
-command = "node"
-args = ["/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"]
+command = "openlint-mcp"
+args = ["--ruleset", "/abs/path/to/.openlint.yaml"]
 
 # Optional, instead of --ruleset:
 # [mcp_servers.openlint.env]
 # OPENLINT_RULESET = "/abs/path/to/.openlint.yaml"
 ```
 
-- **Environment variable from the CLI:** `codex mcp add openlint --env OPENLINT_RULESET=/abs/path/to/.openlint.yaml -- node /abs/path/to/openlint-mcp/dist/index.js`.
+- **Environment variable from the CLI:** `codex mcp add openlint --env OPENLINT_RULESET=/abs/path/to/.openlint.yaml -- openlint-mcp`.
 - **Per project:** a `.codex/config.toml` in a trusted project can hold the same table.
 
 **Check it's connected:** run `codex mcp list`, or `/mcp` inside the Codex TUI.
@@ -198,7 +222,7 @@ Docs: [Codex MCP](https://developers.openai.com/codex/mcp).
 Add the server with the `opencode` CLI. Without `--global`, it goes into the project's configuration:
 
 ```sh
-opencode mcp add openlint -- node /abs/path/to/openlint-mcp/dist/index.js --ruleset /abs/path/to/.openlint.yaml
+opencode mcp add openlint -- openlint-mcp --ruleset /abs/path/to/.openlint.yaml
 ```
 
 In some older versions, `opencode mcp add` doesn't take a name and command, and asks for them instead. Enter `openlint` as the name, choose a local server, and give the same command.
@@ -212,7 +236,7 @@ Or edit `opencode.json` (or `opencode.jsonc`) in the project root, or `~/.config
     "servers": {
       "openlint": {
         "type": "local",
-        "command": ["node", "/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"],
+        "command": ["openlint-mcp", "--ruleset", "/abs/path/to/.openlint.yaml"],
         // Optional, instead of --ruleset:
         // "environment": { "OPENLINT_RULESET": "/abs/path/to/.openlint.yaml" }
       },
@@ -229,7 +253,7 @@ Older versions (V1) put servers directly under `mcp`, and use `enabled`:
   "mcp": {
     "openlint": {
       "type": "local",
-      "command": ["node", "/abs/path/to/openlint-mcp/dist/index.js", "--ruleset", "/abs/path/to/.openlint.yaml"],
+      "command": ["openlint-mcp", "--ruleset", "/abs/path/to/.openlint.yaml"],
       "enabled": true,
     },
   },
