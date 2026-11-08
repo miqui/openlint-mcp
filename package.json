@@ -46,6 +46,39 @@
   "release": {
     "branches": [
       "main"
+    ],
+    "plugins": [
+      "@semantic-release/commit-analyzer",
+      "@semantic-release/release-notes-generator",
+      "@semantic-release/changelog",
+      [
+        "@semantic-release/npm",
+        {
+          "npmPublish": false,
+          "tarballDir": "release"
+        }
+      ],
+      [
+        "@semantic-release/git",
+        {
+          "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+        }
+      ],
+      [
+        "@semantic-release/github",
+        {
+          "assets": [
+            {
+              "path": "release/*.tgz",
+              "name": "openlint-mcp.tgz",
+              "label": "openlint-mcp.tgz (install with npm install -g ./openlint-mcp.tgz)"
+            }
+          ],
+          "successComment": false,
+          "failComment": false,
+          "releasedLabels": false
+        }
+      ]
     ]
   },
   "lint-staged": {
@@ -73,6 +106,8 @@
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@eslint/js": "^10.0.1",
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/git": "^11.0.1",
     "@types/node": "^22.20.5",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",

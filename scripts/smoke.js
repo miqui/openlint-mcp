@@ -1,6 +1,8 @@
 // Smoke test for the built server: starts dist/index.js over stdio with a real MCP client, the way
 // MCP clients launch it, and calls its tools. This exercises the built ESM imports of the CommonJS
 // @openlint/* packages, which Vitest's transforms would hide.
+//
+// OPENLINT_MCP_SERVER=/path/to/openlint-mcp runs an installed command instead of dist/index.js.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -8,7 +10,9 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const server = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+const installed = process.env['OPENLINT_MCP_SERVER'];
+const command = installed ?? process.execPath;
+const baseArgs = installed === undefined ? [fileURLToPath(new URL('../dist/index.js', import.meta.url))] : [];
 const document = readFileSync(new URL('../src/__tests__/__fixtures__/documents/oas3.0.yaml', import.meta.url), 'utf8');
 const inlineRuleset =
   'formats: [oas3.0]\nrules:\n  need-contact:\n    given: $.info\n    severity: error\n    then: { field: contact, function: truthy }\n';
@@ -20,7 +24,7 @@ function check(condition, message) {
 
 async function withServer(args, run) {
   const client = new Client({ name: 'smoke', version: '0.0.0' });
-  await client.connect(new StdioClientTransport({ command: process.execPath, args: [server, ...args] }));
+  await client.connect(new StdioClientTransport({ command, args: [...baseArgs, ...args] }));
   try {
     await run(client);
   } finally {

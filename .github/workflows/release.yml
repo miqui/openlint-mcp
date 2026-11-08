@@ -1,0 +1,41 @@
+name: Release
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Run semantic-release without releasing
+        type: boolean
+        default: true
+permissions:
+  contents: read
+concurrency:
+  group: release
+  cancel-in-progress: false
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+  release:
+    needs: ci
+    # Forks never release.
+    if: github.repository == 'miqui/openlint-mcp'
+    runs-on: ubuntu-latest
+    permissions:
+      # Tag, GitHub release with the package tarball, and the version commit. Nothing goes to npm.
+      contents: write
+    env:
+      HUSKY: '0'
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Release
+        run: npx semantic-release ${{ inputs.dry-run && '--dry-run' || '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
