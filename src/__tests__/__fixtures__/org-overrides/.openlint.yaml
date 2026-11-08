@@ -1,0 +1,13 @@
+# A configured ruleset whose overrides turn a rule off for one file name.
+formats: [oas3]
+rules:
+  info-description-required:
+    given: $.info
+    severity: error
+    then:
+      field: description
+      function: truthy
+overrides:
+  - files: [legacy.yaml]
+    rules:
+      info-description-required: off

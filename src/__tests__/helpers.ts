@@ -28,8 +28,8 @@ export function issuesOf(result: RulesetResult) {
 }
 
 /** Connects a real MCP client to a server over the in-memory transport. */
-export async function connect(rulesets: RulesetService = RulesetService.fallback()) {
-  const server = createServer({ rulesets });
+export async function connect(rulesets: RulesetService = RulesetService.fallback(), allowExternalRefs = false) {
+  const server = createServer({ rulesets, allowExternalRefs });
   const client = new Client({ name: 'test-client', version: '0.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);

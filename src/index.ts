@@ -8,7 +8,7 @@ import { createServer } from './server.js';
 async function main(): Promise<void> {
   const config = parseConfig(process.argv.slice(2), process.env, process.cwd());
   const rulesets = await RulesetService.fromConfig(config.rulesets);
-  await createServer({ rulesets }).connect(new StdioServerTransport());
+  await createServer({ rulesets, allowExternalRefs: config.allowExternalRefs }).connect(new StdioServerTransport());
 }
 
 main().catch((error: unknown) => {

@@ -21,6 +21,11 @@ export interface RulesetSpec {
 export interface ServerConfig {
   /** Empty when nothing is configured; the server then uses the package rulesets. */
   readonly rulesets: readonly RulesetSpec[];
+  /**
+   * Whether `lint_document` follows `$ref`s to files and URLs. Off by default: documents come from
+   * the AI tool, and following their refs would let them read local files and fetch URLs.
+   */
+  readonly allowExternalRefs: boolean;
 }
 
 export class ConfigError extends Error {
@@ -36,15 +41,19 @@ const NAME_PATTERN = /^[A-Za-z][\w.-]*$/;
  * - `--ruleset <path>` sets the default ruleset; `OPENLINT_RULESET` is used when the flag is absent.
  * - `--ruleset <name>=<path>` adds a named ruleset; it can be repeated.
  * - Without an unnamed ruleset, the first named one is the default.
+ * - `--allow-external-refs` lets `lint_document` follow `$ref`s to files and URLs.
  *
  * Relative paths resolve against `cwd`.
  */
 export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv, cwd: string): ServerConfig {
-  let values: { ruleset?: string[] };
+  let values: { ruleset?: string[]; 'allow-external-refs'?: boolean };
   try {
     ({ values } = parseArgs({
       args: [...argv],
-      options: { ruleset: { type: 'string', short: 'r', multiple: true } },
+      options: {
+        ruleset: { type: 'string', short: 'r', multiple: true },
+        'allow-external-refs': { type: 'boolean' },
+      },
       strict: true,
       allowPositionals: false,
     }));
@@ -93,5 +102,5 @@ export function parseConfig(argv: readonly string[], env: NodeJS.ProcessEnv, cwd
     specs.push({ name, path: path.resolve(cwd, rulesetPath), isDefault: specs.length === 0 });
   }
 
-  return { rulesets: specs };
+  return { rulesets: specs, allowExternalRefs: values['allow-external-refs'] === true };
 }
