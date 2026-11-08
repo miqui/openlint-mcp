@@ -8,7 +8,7 @@ const cwd = '/work';
 
 describe('parseConfig', () => {
   it('returns no rulesets when nothing is configured', () => {
-    expect(parseConfig([], {}, cwd)).toEqual({ rulesets: [] });
+    expect(parseConfig([], {}, cwd)).toEqual({ rulesets: [], allowExternalRefs: false });
   });
 
   it('reads an unnamed --ruleset as the default and resolves it against cwd', () => {
@@ -64,6 +64,15 @@ describe('parseConfig', () => {
     expect(() => parseConfig(['-r', 'oas=x.yaml'], {}, cwd)).toThrow(/reserved/);
     expect(() => parseConfig(['-r', 'org=a.yaml', '-r', 'org=b.yaml'], {}, cwd)).toThrow(/more than once/);
     expect(() => parseConfig(['-r', 'a.yaml', '-r', 'default=b.yaml'], {}, cwd)).toThrow(/more than once/);
+  });
+
+  it('reads --allow-external-refs', () => {
+    expect(parseConfig(['--allow-external-refs'], {}, cwd).allowExternalRefs).toBe(true);
+    expect(parseConfig(['--allow-external-refs', '-r', 'a.yaml'], {}, cwd)).toMatchObject({
+      allowExternalRefs: true,
+      rulesets: [{ name: 'default' }],
+    });
+    expect(() => parseConfig(['--allow-external-refs=yes'], {}, cwd)).toThrow(ConfigError);
   });
 
   it('rejects unknown options', () => {

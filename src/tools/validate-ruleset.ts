@@ -18,6 +18,6 @@ export function registerValidateRuleset(server: McpServer, rulesets: RulesetServ
       outputSchema: { valid: z.boolean(), errors: z.array(issueSchema), warnings: z.array(issueSchema) },
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    async ({ content }) => result({ ...(await rulesets.validate(content)) }),
+    ({ content }) => result({ ...rulesets.validate(content) }),
   );
 }

@@ -1,5 +1,6 @@
 // Smoke test for the built server: starts dist/index.js over stdio with a real MCP client, the way
-// MCP clients launch it, and checks the handshake and a tool call that bundles an inline ruleset.
+// MCP clients launch it, and calls its tools. This exercises the built ESM imports of the CommonJS
+// @openlint/* packages, which Vitest's transforms would hide.
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
@@ -7,21 +8,27 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const server = fileURLToPath(new URL('../dist/index.js', import.meta.url));
+const document = readFileSync(new URL('../src/__tests__/__fixtures__/documents/oas3.0.yaml', import.meta.url), 'utf8');
+const inlineRuleset =
+  'formats: [oas3.0]\nrules:\n  need-contact:\n    given: $.info\n    severity: error\n    then: { field: contact, function: truthy }\n';
 
 function check(condition, message) {
   if (!condition) throw new Error(message);
   console.log(`ok: ${message}`);
 }
 
-const client = new Client({ name: 'smoke', version: '0.0.0' });
-await client.connect(
-  new StdioClientTransport({
-    command: process.execPath,
-    args: [fileURLToPath(new URL('../dist/index.js', import.meta.url))],
-  }),
-);
+async function withServer(args, run) {
+  const client = new Client({ name: 'smoke', version: '0.0.0' });
+  await client.connect(new StdioClientTransport({ command: process.execPath, args: [server, ...args] }));
+  try {
+    await run(client);
+  } finally {
+    await client.close();
+  }
+}
 
-try {
+await withServer([], async client => {
   const info = client.getServerVersion();
   check(info?.name === 'openlint-mcp' && info.version === version, `serverInfo is openlint-mcp@${version}`);
 
@@ -32,7 +39,28 @@ try {
     name: 'validate_ruleset',
     arguments: { content: 'extends: [oas]\nformats: [oas3.1]\nrules:\n  info-contact: off\n' },
   });
-  check(validated?.valid === true, 'validate_ruleset bundles an inline ruleset from dist');
-} finally {
-  await client.close();
-}
+  check(validated?.valid === true, 'validate_ruleset builds an inline ruleset from dist');
+
+  const { structuredContent: linted } = await client.callTool({
+    name: 'lint_document',
+    arguments: { content: document },
+  });
+  check(
+    linted?.formats?.includes('OpenAPI 3.0.x') && linted.counts.warn > 0,
+    'lint_document lints with the default rulesets',
+  );
+
+  const { structuredContent: inline } = await client.callTool({
+    name: 'lint_document',
+    arguments: { content: document, ruleset: inlineRuleset },
+  });
+  check(inline?.diagnostics?.[0]?.code === 'need-contact', 'lint_document lints with an inline ruleset');
+});
+
+await withServer(['--allow-external-refs'], async client => {
+  const { structuredContent: linted } = await client.callTool({
+    name: 'lint_document',
+    arguments: { content: document },
+  });
+  check(linted?.counts?.warn > 0 && linted.notes.length === 0, 'lint_document runs with --allow-external-refs');
+});

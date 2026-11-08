@@ -1,0 +1,21 @@
+openapi: 3.0.3
+info:
+  title: Pets
+  version: '1.0'
+servers:
+  - url: https://example.com
+paths:
+  /pets:
+    get:
+      responses:
+        '200':
+          description: OK
+    post:
+      responses:
+        '201':
+          description: Created
+  /owners:
+    get:
+      responses:
+        '200':
+          description: OK

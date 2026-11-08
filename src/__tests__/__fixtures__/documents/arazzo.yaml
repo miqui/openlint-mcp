@@ -1,0 +1,13 @@
+arazzo: 1.0.1
+info:
+  title: Flows
+  version: '1.0'
+sourceDescriptions:
+  - name: pets
+    url: https://example.com/openapi.yaml
+    type: openapi
+workflows:
+  - workflowId: list-pets
+    steps:
+      - stepId: list
+        operationPath: '{$sourceDescriptions.pets.url}#/paths/~1pets/get'

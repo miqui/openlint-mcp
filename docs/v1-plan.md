@@ -33,7 +33,7 @@ All are already on npm:
 | `@openlint/openlint-core` | 0.1.1 | `OpenLint`, `Document`, `Ruleset`, `Rule`, `assertValidRuleset`, `RulesetValidationError` |
 | `@openlint/openlint-parsers` | 1.0.0 | `Yaml` / `Json` parsers for documents and inline rulesets |
 | `@openlint/openlint-rulesets` | 0.1.0 | `oas`, `asyncapi`, `arazzo` ruleset objects |
-| `@openlint/openlint-ruleset-bundler` | 0.1.1 | `bundleAndLoadRuleset` (`/with-loader`) for ruleset files (YAML/JSON/JS) and inline rulesets (see Ruleset sources). It runs the migrator, which resolves `spectral:oas`-style aliases, so the migrator isn't a direct dependency. |
+| `@openlint/openlint-ruleset-bundler` | 0.1.1 | `bundleAndLoadRuleset` (`/with-loader`) for configured ruleset files (YAML/JSON/JS). It runs the migrator, which resolves `spectral:oas`-style aliases, so the migrator isn't a direct dependency. Inline rulesets don't use it (see Ruleset sources). |
 | `@openlint/openlint-functions` | 0.1.0 | Names of the built-in functions, for checking `then.function` |
 | `@openlint/openlint-formats` | 0.1.0 | Format exports, the source of truth for `formats` names in inline rulesets |
 | `@openlint/openlint-runtime` | 0.0.1 | `fetch` for the loader's `io` |
@@ -57,20 +57,27 @@ All tools are read-only. None of them write files.
 
 - **Input:**
   - `content` (string, required)
-  - `ruleset` (optional): the name of a configured ruleset, or an inline YAML/JSON ruleset string
+  - `filename` (optional, PR 3): a plain file name such as `openapi.json`, never read from disk. A `.json` name selects the JSON parser, otherwise YAML (open question 3). The document gets this name as if it sat next to the active ruleset's file (or in the working directory), so the ruleset's `overrides` match it. Default `document.yaml`.
+  - `ruleset` (optional): the name of a configured ruleset (or `oas`, `asyncapi`, `arazzo`, an alias), or an inline YAML/JSON ruleset string
   - `severity` (`error|warn|info|hint`, default `hint`): the threshold
-  - `limit` (default 50)
+  - `limit` (1–1000, default 50)
   - `groupBy` (`none|code`, default `code`)
 - **Output:**
-  - `formats`: the formats matched by the active ruleset; empty means unrecognized
+  - `formats`: the formats matched by the active ruleset; empty means unrecognized (core also adds an `unrecognized-format` diagnostic)
   - `counts`: `{ error, warn, info, hint }`
   - `diagnostics`, either:
-    - grouped: `{ code, severity, message, count, first: { path, range } }[]`
-    - flat: `{ code, severity, message, path, range }[]`
+    - grouped: `{ code, severity, message, count, first: { path, range, source? } }[]`
+    - flat: `{ code, severity, message, path, range, source? }[]`
+    - `source` is set only for problems in another document, reached through a `$ref`
   - `truncated: boolean`
+  - `notes: string[]` (PR 3): hints about the result, such as external `$ref`s that weren't followed
 - **Notes:**
-  - Diagnostics are sorted by severity, most severe first, then by code.
-  - Counts always cover every result, even when `limit` truncates the list.
+  - Diagnostics are sorted by severity, most severe first, then by code, then by path and position.
+  - A group's severity is its most severe diagnostic's, and its message and location are that diagnostic's.
+  - Counts always cover every result, even when `severity` or `limit` leave some out.
+  - Ranges are 0-based lines and characters. Messages refer to files relative to the document's directory, not as server paths.
+  - A ruleset the server can't use (unknown name, refused inline ruleset) is a tool error (`isError`) listing the issues, not an empty result.
+  - With `--allow-external-refs`, the tool's `openWorldHint` annotation is `true`.
 
 ### `list_rulesets`
 
@@ -111,36 +118,43 @@ All tools are read-only. None of them write files.
 3. **Fallback** when nothing is configured (open question 2, decided): the `oas`, `asyncapi` and `arazzo` exports of `@openlint/openlint-rulesets`, recommended rules only.
    - `list_rulesets` labels them by package, not as "core" rulesets, and marks all three as defaults.
    - The default ruleset extends all three. Each rule only runs on documents of its own formats.
-4. **Per-call inline** (`ruleset` given as YAML/JSON text): parsed, checked against the inline policy (see Safety), validated, then loaded. This text comes from the caller, so it is untrusted.
+4. **Per-call inline** (`ruleset` given as YAML/JSON text): parsed, checked against the inline policy (see Safety), validated, then built with core. This text comes from the caller, so it is untrusted.
    - `oas`, `asyncapi` and `arazzo` can always be used in an inline `extends`, even when other rulesets are configured. `extends: [oas]` is the preferred form.
    - A tool's `ruleset` argument can also be one of those names, a configured name or an alias.
 
 Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and exit with status 1. The server never falls back silently. MCP clients often start servers with an unexpected working directory, so the README should recommend absolute ruleset paths.
 
-**Spike result (PR 2):** inline rulesets are loaded with `bundleAndLoadRuleset` from an in-memory entry file.
-- **How it works:**
-  - The entry is a `.json` path inside the package that never exists on disk. An `io.fs` wrapper serves its content, so the bundler resolves `@openlint/*` from our dependencies.
-  - Before bundling, each allowed `extends` name is rewritten. A configured ruleset's name becomes its trusted file path. `oas`, `asyncapi` and `arazzo` become their `openlint:` aliases.
-- **Why not the alternatives:**
-  - The `stdin` plugin doesn't fit, because it feeds JS source, not YAML/JSON.
-  - Building a `Ruleset` by hand would mean copying the migrator's alias, format and function tables.
+**How inline rulesets are loaded (PR 3; replaces the PR 2 spike result):** they're built with core's `Ruleset` directly, without the bundler.
+- **How it works:** after the inline policy check, every name in the ruleset is one the server can map to an object it already holds:
+  - `then.function` names map to `@openlint/openlint-functions` exports.
+  - `formats` names map to `@openlint/openlint-formats` exports.
+  - `oas`, `asyncapi`, `arazzo` and their aliases map to the `@openlint/openlint-rulesets` definitions.
+  - Configured ruleset names map to the definitions loaded at startup, custom functions included.
+
+  The mapped definition goes to `new Ruleset(…, { severity: 'recommended' })`, which validates the JS form, including rule overrides.
+- **Why it changed:** in PR 2, inline rulesets were bundled from an in-memory entry file. That bundled a configured ruleset again whenever an inline ruleset extended it, re-reading its files and re-running its code. `lint_document` would have done that on every call. PR 2 avoided building by hand because it meant copying the migrator's tables. The policy now limits names to package exports and loaded rulesets, so nothing needs copying.
 - **Results:**
-  - An inline `extends: [my-org]` keeps `my-org`'s custom functions working.
-  - For any input the policy allows, the only files read are the entry file and, when an inline ruleset extends a configured ruleset, that ruleset's own (trusted) files. `validate_ruleset` doesn't load configured rulesets again: it checks against the copies loaded at startup.
-  - No upstream helper is needed.
+  - An inline `extends: [my-org]` keeps `my-org`'s custom functions working, and its files aren't read again.
+  - Inline rulesets read no files, fetch nothing, and run only built-in functions.
+  - `overrides` of an extended ruleset don't apply. Core only applies `overrides` on the top-level ruleset, and that was already true with the bundler.
 
 ## Safety
 
 - **No document reads from disk or network in v1.** Input is `content` only.
-- **External `$ref`s:** by default the resolver would follow `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag. The plan is a resolver from `@openlint/openlint-ref-resolver` that has no `file` or `http` handlers, passed through `OpenLint`'s `resolver` option. Confirm this in PR 3.
+- **External `$ref`s:** core's default resolver follows `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag.
+  - *Confirmed in PR 3:* `lint_document` passes `new Resolver()` from `@openlint/openlint-ref-resolver`, which has no `file` or `http` handlers, through `OpenLint`'s `resolver` option. External refs become `invalid-ref` errors ("No resolver defined for scheme …"), and refs inside the document still resolve. Tests check that no request is made and no file is read, with positive controls for both.
+  - With the flag, it uses `createHttpAndFileResolver()`, the same resolver as core's default. Relative refs then resolve against the document's directory: the active ruleset's directory, or the working directory.
+  - `$ref`s inside rule options (for example a `schema` function's `functionOptions`) aren't fetched either way; a test checks this.
 - **No custom JS from callers.**
   - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.
+  - Inline rulesets can't use `overrides` at all (PR 3), since their `files` patterns have no ruleset file to be relative to.
+- **Inline JSONPath stays plain (PR 3).** `lint_document` evaluates an inline ruleset's JSONPath against documents. As defense in depth, inline `given`, `then.field` and alias paths can't contain filter or script expressions (anything with `(`). Configured rulesets can use them, and `validate_ruleset` warns instead of erroring. `npm audit --omit=dev` reports no known vulnerabilities in the dependencies (checked in PR 3).
   - Every inline `then.function` must name a built-in function from `@openlint/openlint-functions`.
   - Custom functions are only allowed in rulesets configured at startup.
 - **Inline `formats` names must be exports of `@openlint/openlint-formats`.**
   - **Where:** the check covers every place the migrator reads `formats`: the ruleset, `overrides`, rules, and `aliases` targets.
   - **Matching:** names are matched against the package's format exports (the exports with a `displayName`), ignoring case, `.`, `_` and `-`. So `oas3.1`, `oas3_1` and `OAS3.1` all mean `oas3_1`, and `json-schema-draft7` means `jsonSchemaDraft7`.
-  - **Rewrite:** before bundling, each name is replaced by its export name.
+  - **Mapping:** each name is replaced by the format function it names before the ruleset is built.
   - **Why not the migrator's table:** it has drifted from the package. `asyncapi3` and `arazzo1` are listed but fail to load, and `oas3.2` isn't listed but works.
   - **Scope:** configured rulesets are trusted and still go through the migrator unchanged.
 - **The general rule:** every name in an inline ruleset that the migrator resolves must come from a fixed set: built-in function names, format exports, ruleset aliases and configured rulesets. If the migrator starts resolving other fields, extend the check.
@@ -151,7 +165,7 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 
   A prefix match on `spectral:*` or `openlint:*` would not be safe. The migrator resolves any other name, such as `spectral:bogus`, as a file path relative to the ruleset. Name lookups use a `Map`, so names like `constructor` or `__proto__` don't match `Object` prototype keys.
 
-  Anything else is rejected before the migrator or bundler sees it:
+  Anything else is rejected before the ruleset is built:
   - URLs: the remote ruleset could pull in and run remote JS
   - relative or absolute paths: these read files on the server's disk
   - npm package names: these trigger package resolution
@@ -181,8 +195,10 @@ Mirrors the OpenLint monorepo conventions:
   - an inline ruleset that is invalid
   - an inline ruleset that declares `functions` (rejected)
   - an inline ruleset whose `extends` is a URL, a relative or absolute path, or a package name (rejected)
-  - an external `$ref` when external resolution is off
-- Smoke test: `npm run smoke` (`scripts/smoke.js`) starts `dist/index.js` over stdio with the SDK's stdio client. It checks the handshake, `list_rulesets`, and a `validate_ruleset` call that bundles an inline ruleset from `dist`. CI runs it on Node 22 and 24. For manual checks, use `npx @modelcontextprotocol/inspector` against the built binary.
+  - an external `$ref` when external resolution is off, and when it's on
+  - each format (OpenAPI 2.0, 3.0, 3.1, AsyncAPI, Arazzo), invalid YAML, and the JSON parser for `.json` names
+  - severity threshold, and `overrides` in a configured ruleset matched against `filename`
+- Smoke test: `npm run smoke` (`scripts/smoke.js`) starts `dist/index.js` over stdio with the SDK's stdio client. It checks the handshake, `list_rulesets`, a `validate_ruleset` call that builds an inline ruleset, and `lint_document` with the default rulesets, an inline ruleset, and `--allow-external-refs`. CI runs it on Node 22 and 24. For manual checks, use `npx @modelcontextprotocol/inspector` against the built binary.
 
 ## Milestones (one PR each)
 
@@ -205,8 +221,8 @@ Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
 ### Milestone 3 notes
 
-- **Inline `overrides`.** An inline ruleset's `overrides[].files` globs resolve against the in-memory entry file, which has no real directory. Decide how `lint_document` names the document (its `source`), then either make `files` meaningful for inline rulesets or reject `overrides` inline.
-- **Bundling cost.** Each inline ruleset is bundled on every call. If that turns out to be slow in practice, cache loaded rulesets by content.
+- **Inline `overrides`.** *Settled in PR 3:* rejected inline. Their `files` patterns match document paths relative to the ruleset's own file, and an inline ruleset has none. `validate_ruleset` returns a warning, as for custom functions. Configured rulesets can still use `overrides`.
+- **Bundling cost.** *Settled in PR 3:* inline rulesets are no longer bundled (see Ruleset sources), so there's nothing to cache.
 
 ## Later (v1.1+)
 
@@ -229,4 +245,4 @@ Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
 1. What npm name to use before the transfer: unpublished, `@miqui/openlint-mcp`, or ask now for `@openlint/openlint-mcp`?
 2. ~~Should the fallback load all three rulesets, or start with none and tell the agent to configure one?~~ Decided in PR 2: load all three (see Ruleset sources).
-3. Should `lint_document` accept a `format` hint (`yaml|json`), or always parse as YAML (a superset of JSON)?
+3. ~~Should `lint_document` accept a `format` hint (`yaml|json`), or always parse as YAML (a superset of JSON)?~~ Decided in PR 3: an optional `filename`, whose `.json` extension selects the JSON parser (see `lint_document`).

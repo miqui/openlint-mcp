@@ -1,6 +1,6 @@
 # openlint-mcp
 
-An [MCP](https://modelcontextprotocol.io) server for [OpenLint](https://github.com/openlint/openlint). It lets AI tools such as Claude, Codex and OpenCode check OpenLint rulesets, and, as the remaining milestones land, lint OpenAPI, AsyncAPI and Arazzo documents and look up rules.
+An [MCP](https://modelcontextprotocol.io) server for [OpenLint](https://github.com/openlint/openlint). It lets AI tools such as Claude, Codex and OpenCode lint OpenAPI, AsyncAPI and Arazzo documents and check OpenLint rulesets, and, once milestone 4 lands, look up rules.
 
 The server runs locally over stdio and builds only on the published `@openlint/*` npm packages. Design and milestones: [`docs/v1-plan.md`](docs/v1-plan.md).
 
@@ -14,7 +14,7 @@ All tools are read-only.
 | ---------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
 | `list_rulesets`              | Lists the rulesets the server is configured with                                                                     | Available             |
 | `validate_ruleset`           | Checks a YAML or JSON ruleset without running any code, and warns about anything `lint_document` would refuse inline | Available             |
-| `lint_document`              | Lints an OpenAPI, AsyncAPI or Arazzo document                                                                        | Planned (milestone 3) |
+| `lint_document`              | Lints an OpenAPI, AsyncAPI or Arazzo document                                                                        | Available             |
 | `list_rules`, `explain_rule` | Look up the rules in a ruleset                                                                                       | Planned (milestone 4) |
 
 ## Install from source
@@ -38,6 +38,7 @@ The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd
 | `--ruleset <path>` (or `-r`) | The default ruleset: a YAML, JSON or JS ruleset file                                                      |
 | `--ruleset <name>=<path>`    | An extra named ruleset. Repeat the option to add more. `oas`, `asyncapi` and `arazzo` are reserved names. |
 | `OPENLINT_RULESET=<path>`    | The default ruleset, when there is no unnamed `--ruleset`                                                 |
+| `--allow-external-refs`      | Let `lint_document` follow `$ref`s to files and URLs (off by default; see below)                          |
 
 - **Which one is the default:** an unnamed `--ruleset`, then `OPENLINT_RULESET`, then the first named ruleset.
 - **Filenames that contain `=`:** `--ruleset team=prod.yaml` means a ruleset named `team`, loaded from `prod.yaml`. To load a file called `team=prod.yaml`, start the path with `./` or `/`, as in `--ruleset ./team=prod.yaml`.
@@ -49,10 +50,32 @@ The server's command is `node /abs/path/to/openlint-mcp/dist/index.js`. Run `pwd
 Rulesets that an AI tool passes inline in a tool call are untrusted, so they are restricted:
 
 - no custom functions
+- no `overrides`
+- JSONPath (`given`, `then.field`, aliases) only as plain paths, without filter or script expressions (nothing with `(`)
 - `extends` only names a configured ruleset, `oas`, `asyncapi`, `arazzo`, or one of the aliases `spectral:oas`, `spectral:asyncapi`, `spectral:arazzo`, `openlint:openapi`, `openlint:asyncapi` and `openlint:arazzo`
 - `formats` only names formats exported by `@openlint/openlint-formats`
 
 `validate_ruleset` explains what was refused.
+
+## Linting documents
+
+`lint_document` takes the document as text in `content`. Optional inputs:
+
+- **`filename`**, such as `openapi.json`. It is never read from disk. A `.json` name selects the JSON parser (otherwise YAML), and the ruleset's `overrides` match it as if the document sat next to the ruleset file.
+- **`ruleset`**: a name from `list_rulesets` (or `oas`, `asyncapi`, `arazzo`), or an inline YAML/JSON ruleset.
+- **`severity`** (`error`, `warn`, `info` or `hint`; default `hint`): leaves out less severe diagnostics.
+- **`limit`** (default 50), and **`groupBy`** (`code`, the default, or `none`).
+
+It returns:
+
+- the `formats` the ruleset recognized (empty when none)
+- `counts` per severity, which always cover every result
+- the `diagnostics`, most severe first, grouped by rule code unless `groupBy` is `none`
+- `truncated`, and any `notes`
+
+**External `$ref`s** (to other files or URLs) aren't followed by default. They're reported as `invalid-ref`, with a note. `--allow-external-refs` turns them on.
+
+> **Warning:** with `--allow-external-refs`, a document from your AI tool can make the server read any local file it has access to, and fetch any URL. Relative refs resolve against the ruleset file's directory (or the working directory). Only use it when you trust the documents.
 
 ## Use with AI tools
 
@@ -203,6 +226,7 @@ Docs: [OpenCode MCP servers](https://opencode.ai/docs/mcp-servers/).
 Once the server is connected, ask your AI tool things like:
 
 - "Which OpenLint rulesets are configured?"
+- "Lint `openapi.yaml` with OpenLint and fix the errors."
 - "Write an OpenLint ruleset that requires `info.contact` in OpenAPI 3.1 documents, and validate it with `validate_ruleset`."
 
 ## Development
