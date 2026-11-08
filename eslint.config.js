@@ -3,7 +3,7 @@ import prettierConfig from 'eslint-plugin-prettier/recommended';
 import globals from 'globals';
 
 export default tseslint.config(
-  { ignores: ['dist/**', 'coverage/**', '.cache/**', '.claude/**'] },
+  { ignores: ['dist/**', 'coverage/**', '.cache/**', '.claude/**', '**/__fixtures__/**'] },
 
   {
     files: ['**/*.{js,ts}'],
@@ -35,10 +35,17 @@ export default tseslint.config(
   },
 
   {
+    files: ['scripts/**/*.js'],
+    rules: { 'no-console': 'off' },
+  },
+
+  {
     files: ['src/**/__tests__/**/*.ts'],
     rules: {
       '@typescript-eslint/explicit-function-return-type': 'off',
       '@typescript-eslint/no-non-null-assertion': 'off',
+      // expect.stringMatching() and friends are typed as any.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
     },
   },
 );
