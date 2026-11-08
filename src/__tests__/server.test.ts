@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs';
+
 import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
 import { createServer } from '../server.js';
-import { NAME, VERSION } from '../version.js';
+
+// Read package.json directly so the test doesn't trust the server's own VERSION.
+const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')) as { version: string };
 
 describe('createServer', () => {
   let client: Client | undefined;
@@ -19,7 +23,7 @@ describe('createServer', () => {
 
     await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 
-    expect(client.getServerVersion()).toEqual({ name: NAME, version: VERSION });
+    expect(client.getServerVersion()).toEqual({ name: 'openlint-mcp', version: pkg.version });
   });
 
   it('does not advertise any tools yet', async () => {
