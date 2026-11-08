@@ -1,6 +1,6 @@
 # openlint-mcp
 
-An [MCP](https://modelcontextprotocol.io) server for [OpenLint](https://github.com/openlint/openlint). It lets AI tools such as Claude, Codex and OpenCode lint OpenAPI, AsyncAPI and Arazzo documents and check OpenLint rulesets, and, once milestone 4 lands, look up rules.
+An [MCP](https://modelcontextprotocol.io) server for [OpenLint](https://github.com/openlint/openlint). It lets AI tools such as Claude, Codex and OpenCode lint OpenAPI, AsyncAPI and Arazzo documents, look up rules, and check OpenLint rulesets.
 
 The server runs locally over stdio and builds only on the published `@openlint/*` npm packages. Design and milestones: [`docs/v1-plan.md`](docs/v1-plan.md).
 
@@ -10,12 +10,13 @@ The server runs locally over stdio and builds only on the published `@openlint/*
 
 All tools are read-only.
 
-| Tool                         | What it does                                                                                                         | Status                |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------- |
-| `list_rulesets`              | Lists the rulesets the server is configured with                                                                     | Available             |
-| `validate_ruleset`           | Checks a YAML or JSON ruleset without running any code, and warns about anything `lint_document` would refuse inline | Available             |
-| `lint_document`              | Lints an OpenAPI, AsyncAPI or Arazzo document                                                                        | Available             |
-| `list_rules`, `explain_rule` | Look up the rules in a ruleset                                                                                       | Planned (milestone 4) |
+| Tool               | What it does                                                                                                         | Status    |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------- | --------- |
+| `list_rulesets`    | Lists the rulesets the server is configured with                                                                     | Available |
+| `validate_ruleset` | Checks a YAML or JSON ruleset without running any code, and warns about anything `lint_document` would refuse inline | Available |
+| `lint_document`    | Lints an OpenAPI, AsyncAPI or Arazzo document                                                                        | Available |
+| `list_rules`       | Lists a ruleset's rules, optionally for one format (such as `oas3.1` or `swagger`)                                   | Available |
+| `explain_rule`     | Explains one rule, including `extensions` such as fixing guidance                                                    | Available |
 
 ## Install from source
 
@@ -76,6 +77,25 @@ It returns:
 **External `$ref`s** (to other files or URLs) aren't followed by default. They're reported as `invalid-ref`, with a note. `--allow-external-refs` turns them on; each HTTP request then has a 10-second timeout.
 
 > **Warning:** with `--allow-external-refs`, a document from your AI tool can make the server read any local file it has access to, and fetch any URL. Relative refs resolve against the ruleset file's directory (or the working directory). Only use it when you trust the documents.
+
+## Looking up rules
+
+- **`list_rules`** lists a ruleset's rules, sorted by name: severity, whether it's enabled and recommended, its formats and description.
+  - `format` keeps the rules for one kind of document. It accepts names like `oas3.1`, `OpenAPI 3.1`, `swagger` (OpenAPI 2.0), `asyncapi3` or `arazzo1.0`. A version includes rules for its family: `oas3.1` includes rules for OpenAPI 3.x, and `oas3` includes rules for every OpenAPI 3 version.
+  - `enabledOnly` (default `true`) lists only the rules `lint_document` runs.
+- **`explain_rule`** explains one rule: its description, message, `given` paths, `then` (function, field and small function options), severity, formats, documentation link and `extensions`.
+
+**Guidance for agents in your ruleset:** core accepts a free-form `extensions` object on each rule, and `explain_rule` returns it as written. The convention for agent guidance is `extensions.prompt`:
+
+```yaml
+rules:
+  operation-summary:
+    description: Every operation needs a summary.
+    given: $.paths[*][*]
+    then: { field: summary, function: truthy }
+    extensions:
+      prompt: Write a short summary in sentence case, under 60 characters, without a trailing period.
+```
 
 ## Use with AI tools
 
@@ -227,6 +247,7 @@ Once the server is connected, ask your AI tool things like:
 
 - "Which OpenLint rulesets are configured?"
 - "Lint `openapi.yaml` with OpenLint and fix the errors."
+- "Which OpenLint rules apply to OpenAPI 3.1, and what does `operation-tags` check?"
 - "Write an OpenLint ruleset that requires `info.contact` in OpenAPI 3.1 documents, and validate it with `validate_ruleset`."
 
 ## Development
