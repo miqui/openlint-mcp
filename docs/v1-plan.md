@@ -57,20 +57,27 @@ All tools are read-only. None of them write files.
 
 - **Input:**
   - `content` (string, required)
-  - `ruleset` (optional): the name of a configured ruleset, or an inline YAML/JSON ruleset string
+  - `filename` (optional, PR 3): a plain file name such as `openapi.json`, never read from disk. A `.json` name selects the JSON parser, otherwise YAML (open question 3). The document gets this name as if it sat next to the active ruleset's file (or in the working directory), so the ruleset's `overrides` match it. Default `document.yaml`.
+  - `ruleset` (optional): the name of a configured ruleset (or `oas`, `asyncapi`, `arazzo`, an alias), or an inline YAML/JSON ruleset string
   - `severity` (`error|warn|info|hint`, default `hint`): the threshold
-  - `limit` (default 50)
+  - `limit` (1–1000, default 50)
   - `groupBy` (`none|code`, default `code`)
 - **Output:**
-  - `formats`: the formats matched by the active ruleset; empty means unrecognized
+  - `formats`: the formats matched by the active ruleset; empty means unrecognized (core also adds an `unrecognized-format` diagnostic)
   - `counts`: `{ error, warn, info, hint }`
   - `diagnostics`, either:
-    - grouped: `{ code, severity, message, count, first: { path, range } }[]`
-    - flat: `{ code, severity, message, path, range }[]`
+    - grouped: `{ code, severity, message, count, first: { path, range, source? } }[]`
+    - flat: `{ code, severity, message, path, range, source? }[]`
+    - `source` is set only for problems in another document, reached through a `$ref`
   - `truncated: boolean`
+  - `notes: string[]` (PR 3): hints about the result, such as external `$ref`s that weren't followed
 - **Notes:**
-  - Diagnostics are sorted by severity, most severe first, then by code.
-  - Counts always cover every result, even when `limit` truncates the list.
+  - Diagnostics are sorted by severity, most severe first, then by code, then by path and position.
+  - A group's severity is its most severe diagnostic's, and its message and location are that diagnostic's.
+  - Counts always cover every result, even when `severity` or `limit` leave some out.
+  - Ranges are 0-based lines and characters. Messages refer to files relative to the document's directory, not as server paths.
+  - A ruleset the server can't use (unknown name, refused inline ruleset) is a tool error (`isError`) listing the issues, not an empty result.
+  - With `--allow-external-refs`, the tool's `openWorldHint` annotation is `true`.
 
 ### `list_rulesets`
 
@@ -134,7 +141,10 @@ Startup errors (a bad flag, or a ruleset that fails to load) go to stderr and ex
 ## Safety
 
 - **No document reads from disk or network in v1.** Input is `content` only.
-- **External `$ref`s:** by default the resolver would follow `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag. The plan is a resolver from `@openlint/openlint-ref-resolver` that has no `file` or `http` handlers, passed through `OpenLint`'s `resolver` option. Confirm this in PR 3.
+- **External `$ref`s:** core's default resolver follows `file:` and `http(s):` refs found in `content`. v1 turns off external resolution by default and adds an `--allow-external-refs` startup flag.
+  - *Confirmed in PR 3:* `lint_document` passes `new Resolver()` from `@openlint/openlint-ref-resolver`, which has no `file` or `http` handlers, through `OpenLint`'s `resolver` option. External refs become `invalid-ref` errors ("No resolver defined for scheme …"), and refs inside the document still resolve. Tests check that no request is made and no file is read, with positive controls for both.
+  - With the flag, it uses `createHttpAndFileResolver()`, the same resolver as core's default. Relative refs then resolve against the document's directory: the active ruleset's directory, or the working directory.
+  - `$ref`s inside rule options (for example a `schema` function's `functionOptions`) aren't fetched either way; a test checks this.
 - **No custom JS from callers.**
   - Inline rulesets that declare `functions` or `functionsDir`, at the top level or in `overrides`, are rejected.
   - Inline rulesets can't use `overrides` at all (PR 3), since their `files` patterns have no ruleset file to be relative to.
@@ -184,8 +194,10 @@ Mirrors the OpenLint monorepo conventions:
   - an inline ruleset that is invalid
   - an inline ruleset that declares `functions` (rejected)
   - an inline ruleset whose `extends` is a URL, a relative or absolute path, or a package name (rejected)
-  - an external `$ref` when external resolution is off
-- Smoke test: `npm run smoke` (`scripts/smoke.js`) starts `dist/index.js` over stdio with the SDK's stdio client. It checks the handshake, `list_rulesets`, and a `validate_ruleset` call that builds an inline ruleset from `dist`. CI runs it on Node 22 and 24. For manual checks, use `npx @modelcontextprotocol/inspector` against the built binary.
+  - an external `$ref` when external resolution is off, and when it's on
+  - each format (OpenAPI 2.0, 3.0, 3.1, AsyncAPI, Arazzo), invalid YAML, and the JSON parser for `.json` names
+  - severity threshold, and `overrides` in a configured ruleset matched against `filename`
+- Smoke test: `npm run smoke` (`scripts/smoke.js`) starts `dist/index.js` over stdio with the SDK's stdio client. It checks the handshake, `list_rulesets`, a `validate_ruleset` call that builds an inline ruleset, and `lint_document` with the default rulesets, an inline ruleset, and `--allow-external-refs`. CI runs it on Node 22 and 24. For manual checks, use `npx @modelcontextprotocol/inspector` against the built binary.
 
 ## Milestones (one PR each)
 
@@ -232,4 +244,4 @@ Points raised while reviewing the plan against #13, and how PR 2 settled them.
 
 1. What npm name to use before the transfer: unpublished, `@miqui/openlint-mcp`, or ask now for `@openlint/openlint-mcp`?
 2. ~~Should the fallback load all three rulesets, or start with none and tell the agent to configure one?~~ Decided in PR 2: load all three (see Ruleset sources).
-3. Should `lint_document` accept a `format` hint (`yaml|json`), or always parse as YAML (a superset of JSON)?
+3. ~~Should `lint_document` accept a `format` hint (`yaml|json`), or always parse as YAML (a superset of JSON)?~~ Decided in PR 3: an optional `filename`, whose `.json` extension selects the JSON parser (see `lint_document`).
