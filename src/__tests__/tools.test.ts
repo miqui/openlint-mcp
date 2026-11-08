@@ -138,3 +138,40 @@ describe('lint_document', () => {
     }
   });
 });
+
+describe('list_rules', () => {
+  it('lists rules for a format', async () => {
+    client = await connect();
+    const { structuredContent } = await call('list_rules', { format: 'swagger' });
+    const rules = (structuredContent as { rules: { name: string }[] }).rules;
+    expect(rules.map(rule => rule.name)).toContain('oas2-api-host');
+    expect(rules.map(rule => rule.name)).not.toContain('oas3-api-servers');
+  });
+
+  it('returns an error for unknown formats and rulesets', async () => {
+    client = await connect();
+    for (const args of [{ format: 'bogus' }, { ruleset: 'nope' }]) {
+      const result = await client.callTool({ name: 'list_rules', arguments: args });
+      expect(result.isError).toBe(true);
+    }
+  });
+});
+
+describe('explain_rule', () => {
+  it('explains a rule from a named ruleset', async () => {
+    client = await connect();
+    const { structuredContent } = await call('explain_rule', { rule: 'arazzo-info-description', ruleset: 'arazzo' });
+    expect(structuredContent).toMatchObject({
+      name: 'arazzo-info-description',
+      formats: ['Arazzo 1.0.x'],
+      extensions: null,
+    });
+  });
+
+  it('returns an error for unknown rules', async () => {
+    client = await connect();
+    const result = await client.callTool({ name: 'explain_rule', arguments: { rule: 'operation-tag' } });
+    expect(result.isError).toBe(true);
+    expect((result.content as { text: string }[])[0]?.text).toMatch(/Did you mean "operation-tags"/);
+  });
+});

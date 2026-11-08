@@ -23,7 +23,13 @@ describe('createServer', () => {
   it('registers read-only tools', async () => {
     client = await connect();
     const { tools } = await client.listTools();
-    expect(tools.map(tool => tool.name).sort()).toEqual(['lint_document', 'list_rulesets', 'validate_ruleset']);
+    expect(tools.map(tool => tool.name).sort()).toEqual([
+      'explain_rule',
+      'lint_document',
+      'list_rules',
+      'list_rulesets',
+      'validate_ruleset',
+    ]);
     for (const tool of tools) {
       expect(tool.annotations).toMatchObject({ readOnlyHint: true, openWorldHint: false });
       expect(tool.outputSchema).toBeDefined();
@@ -34,7 +40,13 @@ describe('createServer', () => {
     client = await connect(undefined, true);
     const { tools } = await client.listTools();
     const openWorld = Object.fromEntries(tools.map(tool => [tool.name, tool.annotations?.openWorldHint]));
-    expect(openWorld).toEqual({ lint_document: true, list_rulesets: false, validate_ruleset: false });
+    expect(openWorld).toEqual({
+      explain_rule: false,
+      lint_document: true,
+      list_rules: false,
+      list_rulesets: false,
+      validate_ruleset: false,
+    });
     expect(tools.find(tool => tool.name === 'lint_document')?.description).toMatch(/are followed/);
   });
 });
