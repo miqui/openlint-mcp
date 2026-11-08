@@ -1,11 +1,12 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 
+import { rulesetForDocument } from '../lint.js';
 import { explainRule } from '../rules.js';
 import { formatIssue } from '../rulesets/issues.js';
 import type { RulesetService } from '../rulesets/service.js';
 import { ruleDetails } from './rule-schemas.js';
-import { result } from './schemas.js';
+import { lookupFilename, result, rulesetArgument } from './schemas.js';
 
 export function registerExplainRule(server: McpServer, rulesets: RulesetService): void {
   server.registerTool(
@@ -18,17 +19,13 @@ export function registerExplainRule(server: McpServer, rulesets: RulesetService)
         'guidance for fixing it (`extensions.prompt`).',
       inputSchema: {
         rule: z.string().describe('The rule name, as in a diagnostic code or list_rules'),
-        ruleset: z
-          .string()
-          .optional()
-          .describe(
-            'A ruleset name from list_rulesets (or oas, asyncapi, arazzo), or an inline YAML/JSON ruleset. Default: the default ruleset.',
-          ),
+        ruleset: rulesetArgument,
+        filename: lookupFilename,
       },
       outputSchema: ruleDetails.shape,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    ({ rule, ruleset }) => {
+    ({ rule, ruleset, filename }) => {
       const resolved = rulesets.resolve(ruleset);
       if (!resolved.ok) {
         return {
@@ -38,7 +35,7 @@ export function registerExplainRule(server: McpServer, rulesets: RulesetService)
           ],
         };
       }
-      const explained = explainRule(resolved.ruleset, rule);
+      const explained = explainRule(rulesetForDocument(resolved.ruleset, filename), rule, rulesets.functionName);
       return explained.ok
         ? result(explained.rule)
         : { isError: true, content: [{ type: 'text', text: explained.message }] };

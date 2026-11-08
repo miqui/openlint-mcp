@@ -1,0 +1,7 @@
+# A custom function registered as requireTitle, whose implementation is named checkTitle.
+functions: [requireTitle]
+rules:
+  org-title:
+    given: $.info
+    then:
+      function: requireTitle

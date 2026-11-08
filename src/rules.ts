@@ -64,7 +64,10 @@ export function listRules(ruleset: Ruleset, options: { format?: string; enabledO
 export type RuleResult =
   { readonly ok: true; readonly rule: RuleDetails } | { readonly ok: false; readonly message: string };
 
-export function explainRule(ruleset: Ruleset, name: string): RuleResult {
+/** Gives the name a ruleset registered a custom function under, when it differs from the function's own. */
+export type FunctionNamer = (fn: unknown) => string | undefined;
+
+export function explainRule(ruleset: Ruleset, name: string, functionName?: FunctionNamer): RuleResult {
   const rule = Object.hasOwn(ruleset.rules, name) ? ruleset.rules[name] : undefined;
   if (rule === undefined) {
     const query = name.toLowerCase();
@@ -86,7 +89,7 @@ export function explainRule(ruleset: Ruleset, name: string): RuleResult {
       ...summarize(rule),
       message: rule.message,
       given: [...rule.given],
-      then: rule.then.map(describeThen),
+      then: rule.then.map(then => describeThen(then, functionName)),
       documentationUrl: rule.documentationUrl,
       extensions: rule.extensions,
     },
@@ -105,12 +108,21 @@ function summarize(rule: Rule): RuleSummary {
   };
 }
 
-function describeThen(then: Rule['then'][number]): RuleThen {
-  const options = then.functionOptions;
-  const json = options === undefined ? undefined : JSON.stringify(options);
+function describeThen(then: Rule['then'][number], functionName?: FunctionNamer): RuleThen {
   return {
-    function: then.function.name || 'anonymous',
+    function: functionName?.(then.function) ?? (then.function.name || 'anonymous'),
     ...(then.field === undefined ? {} : { field: then.field }),
-    ...(json !== undefined && json.length <= MAX_FUNCTION_OPTIONS_LENGTH ? { functionOptions: options } : {}),
+    ...(smallJson(then.functionOptions) ? { functionOptions: then.functionOptions } : {}),
   };
+}
+
+/** Whether `value` is set, serializes as JSON (no BigInt or cycles), and is small enough to return. */
+function smallJson(value: unknown): boolean {
+  if (value === undefined) return false;
+  try {
+    const json = JSON.stringify(value);
+    return json !== undefined && json.length <= MAX_FUNCTION_OPTIONS_LENGTH;
+  } catch {
+    return false;
+  }
 }
