@@ -13,6 +13,7 @@ import {
   customFunctionIssues,
   extendsIssues,
   extendsRefs,
+  functionRefs,
   isObject,
   isPackageRulesetName,
   jsonPathExpressionIssues,
@@ -68,6 +69,8 @@ export class RulesetService {
   private constructor(
     private readonly entries: readonly Entry[],
     private readonly defaultRuleset: Ruleset,
+    /** Custom functions by the name a configured YAML/JSON ruleset registered them under. */
+    private readonly functionNames = new WeakMap<object, string>(),
   ) {}
 
   /** Loads the configured rulesets, or the package rulesets when `specs` is empty. */
@@ -75,6 +78,7 @@ export class RulesetService {
     if (specs.length === 0) return RulesetService.fallback();
 
     const entries: Entry[] = [];
+    const functionNames = new WeakMap<object, string>();
     for (const spec of specs) {
       let ruleset: Ruleset;
       try {
@@ -84,10 +88,11 @@ export class RulesetService {
         throw new RulesetLoadError(`Failed to load ruleset "${spec.name}" from ${spec.path}:\n  ${details}`);
       }
       entries.push(createEntry(spec.name, spec.path, spec.isDefault, ruleset));
+      await recordFunctionNames(spec.path, ruleset, functionNames);
     }
     const defaultEntry = entries.find(entry => entry.info.isDefault) ?? entries[0];
     if (defaultEntry === undefined) throw new RulesetLoadError('No ruleset is configured.');
-    return new RulesetService(entries, defaultEntry.ruleset);
+    return new RulesetService(entries, defaultEntry.ruleset, functionNames);
   }
 
   /**
@@ -104,6 +109,10 @@ export class RulesetService {
     );
     return new RulesetService(entries, combined);
   }
+
+  /** The name a configured ruleset registered a custom function under, if it's known. */
+  readonly functionName = (fn: unknown): string | undefined =>
+    typeof fn === 'function' ? this.functionNames.get(fn) : undefined;
 
   list(): RulesetInfo[] {
     return this.entries.map(entry => entry.info);
@@ -256,6 +265,35 @@ export class RulesetService {
     }
     return ruleset;
   }
+}
+
+/**
+ * Records the names a YAML/JSON ruleset file gives its functions (`then.function`), against the
+ * functions the bundler loaded for them. A function's own name can differ, for example when its
+ * file exports `function checkTitle` under the registered name `requireTitle`. Best effort: the
+ * ruleset already loaded, and JS rulesets name functions themselves.
+ */
+async function recordFunctionNames(file: string, ruleset: Ruleset, names: WeakMap<object, string>): Promise<void> {
+  if (!/\.(ya?ml|json)$/i.test(file)) return;
+  try {
+    const { data } = parseYaml(await fs.promises.readFile(file, 'utf8'));
+    if (!isObject(data)) return;
+    for (const ref of functionRefs(data)) {
+      const fn = valueAt(ruleset.definition, ref.path);
+      if (typeof ref.name === 'string' && typeof fn === 'function') names.set(fn, ref.name);
+    }
+  } catch {
+    // Names fall back to the functions' own.
+  }
+}
+
+function valueAt(root: unknown, path: (string | number)[]): unknown {
+  let node = root;
+  for (const key of path) {
+    if (typeof node !== 'object' || node === null) return undefined;
+    node = (node as Record<string | number, unknown>)[key];
+  }
+  return node;
 }
 
 function packageRuleset(name: PackageRulesetName): Ruleset {

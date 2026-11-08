@@ -91,6 +91,21 @@ const EXTERNAL_REFS_NOTE =
  * as if it sat next to the ruleset's file (or in the working directory for rulesets without one), so
  * `overrides` patterns match it. External `$ref`s are only followed when `allowExternalRefs` is set.
  */
+/**
+ * Where a document named `filename` is placed: next to the ruleset's file, or in the working
+ * directory for rulesets without one. The document is never read from there; the location is what
+ * `overrides` patterns and relative `$ref`s are matched and resolved against.
+ */
+export function documentLocation(ruleset: Ruleset, filename = DEFAULT_FILENAME): { baseDir: string; source: string } {
+  const baseDir = ruleset.source === null ? process.cwd() : path.dirname(ruleset.source);
+  return { baseDir, source: path.join(baseDir, filename) };
+}
+
+/** The ruleset as `lint_document` applies it to a document named `filename`, with matching `overrides` merged in. */
+export function rulesetForDocument(ruleset: Ruleset, filename = DEFAULT_FILENAME): Ruleset {
+  return ruleset.fromSource(documentLocation(ruleset, filename).source);
+}
+
 export async function lintDocument(options: LintOptions): Promise<LintResult> {
   const {
     content,
@@ -104,8 +119,7 @@ export async function lintDocument(options: LintOptions): Promise<LintResult> {
     externalRefTimeoutMs = EXTERNAL_REF_TIMEOUT_MS,
   } = options;
 
-  const baseDir = ruleset.source === null ? process.cwd() : path.dirname(ruleset.source);
-  const source = path.join(baseDir, filename);
+  const { baseDir, source } = documentLocation(ruleset, filename);
   const document = filename.toLowerCase().endsWith('.json')
     ? new Document(content, Json, source)
     : new Document(content, Yaml, source);

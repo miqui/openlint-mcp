@@ -11,3 +11,12 @@ overrides:
   - files: [legacy.yaml]
     rules:
       info-description-required: off
+  - files: ['*.json']
+    rules:
+      json-only-title:
+        description: JSON documents need a title.
+        given: $.info
+        severity: warn
+        then:
+          field: title
+          function: truthy

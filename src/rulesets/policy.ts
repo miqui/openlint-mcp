@@ -8,9 +8,9 @@
  * directly: nothing is bundled, read from disk, fetched or run apart from built-in functions.
  */
 import * as builtinFunctions from '@openlint/openlint-functions';
-import * as formatExports from '@openlint/openlint-formats';
 
 import { PACKAGE_RULESET_NAMES, type PackageRulesetName } from '../config.js';
+import { FORMAT_NAMES, formatByName, resolveFormat } from './formats.js';
 import type { Issue, IssuePath } from './issues.js';
 
 export type Json = Record<string, unknown>;
@@ -23,41 +23,6 @@ export function isObject(value: unknown): value is Json {
 export const BUILTIN_FUNCTIONS: ReadonlyMap<string, unknown> = new Map(
   Object.entries(builtinFunctions).filter(([name, value]) => name !== 'default' && typeof value === 'function'),
 );
-
-/**
- * Format functions exported by `@openlint/openlint-formats`, by export name. Formats have a
- * `displayName`; the package's helpers (such as `detectDialect`) don't.
- */
-const FORMATS: ReadonlyMap<string, unknown> = new Map(
-  Object.entries(formatExports).filter(
-    ([name, value]) =>
-      name !== 'default' &&
-      typeof value === 'function' &&
-      typeof (value as { displayName?: unknown }).displayName === 'string',
-  ),
-);
-
-const formatKey = (name: string): string => name.toLowerCase().replace(/[._-]/g, '');
-
-const FORMATS_BY_KEY = new Map<string, string[]>();
-for (const name of FORMATS.keys()) {
-  FORMATS_BY_KEY.set(formatKey(name), [...(FORMATS_BY_KEY.get(formatKey(name)) ?? []), name]);
-}
-
-/** Format export names, for messages. */
-export const FORMAT_NAMES: readonly string[] = [...FORMATS.keys()];
-
-/**
- * Maps a format name to an export of `@openlint/openlint-formats`, or `undefined` when there is none.
- * Case, `.`, `_` and `-` are ignored, so `oas3.1`, `oas3_1` and `OAS3.1` all name `oas3_1`, and
- * `json-schema-draft7` names `jsonSchemaDraft7`. Names that match different formats are refused.
- */
-export function resolveFormat(name: string): string | undefined {
-  if (FORMATS.has(name)) return name;
-  const candidates = FORMATS_BY_KEY.get(formatKey(name)) ?? [];
-  const formats = new Set(candidates.map(candidate => FORMATS.get(candidate)));
-  return formats.size === 1 ? candidates[0] : undefined;
-}
 
 /**
  * The `extends` aliases the ruleset migrator maps to `@openlint/openlint-rulesets`. This must match
@@ -334,7 +299,7 @@ export function toRulesetDefinition(definition: Json, resolveExtends: ExtendsRes
   }
   for (const ref of formatRefs(copy)) {
     const name = typeof ref.name === 'string' ? resolveFormat(ref.name) : undefined;
-    if (name !== undefined) setAt(copy, ref.path, FORMATS.get(name));
+    if (name !== undefined) setAt(copy, ref.path, formatByName(name));
   }
   // Last, so the walks above never reach into the shared definitions.
   for (const ref of extendsRefs(copy)) {
